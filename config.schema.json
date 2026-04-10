@@ -2,8 +2,8 @@
   "pluginAlias": "SolarSensor",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Exposes contact sensors that close when the sun's azimuth and altitude fall within configured ranges and (optionally) cloud cover is below a threshold.",
-  "footerDisplay": "Azimuth is measured in degrees from north (0° = north, 90° = east, 180° = south, 270° = west). Altitude is degrees above the horizon (0° = horizon, 90° = zenith). Negative altitudes mean the sun is below the horizon. Get a free OpenWeatherMap API key at https://openweathermap.org/appid.",
+  "headerDisplay": "Exposes contact sensors that close when the sun's azimuth and altitude fall within configured ranges and (optionally) a weather provider reports sunny conditions.",
+  "footerDisplay": "Azimuth is measured in degrees from north (0° = north, 90° = east, 180° = south, 270° = west). Altitude is degrees above the horizon (0° = horizon, 90° = zenith). Negative altitudes mean the sun is below the horizon. Get a free OpenWeatherMap API key at https://openweathermap.org/appid. The UV Index provider requires a One Call API 3.0 subscription (free for 1000 calls/day).",
   "schema": {
     "type": "object",
     "properties": {
@@ -25,18 +25,42 @@
         "required": true,
         "description": "Your location's longitude (e.g. -122.202)"
       },
-      "openWeatherMapApiKey": {
-        "type": "string",
-        "title": "OpenWeatherMap API Key",
-        "required": false,
-        "description": "Optional. When provided, cloud cover is fetched every 10 minutes and used to gate the contact sensor. Get a free key at openweathermap.org."
-      },
       "pollInterval": {
         "type": "number",
         "title": "Solar Sensor Poll Interval (seconds)",
         "default": 60,
         "required": false,
-        "description": "How often to recalculate the sun position (in seconds). Weather is always fetched every 10 minutes independently."
+        "description": "How often to recalculate the sun position (in seconds)."
+      },
+      "weatherProvider": {
+        "type": "object",
+        "title": "Weather Provider",
+        "required": false,
+        "description": "Optional. Configure a weather provider to gate sensors based on sky conditions.",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider Type",
+            "required": true,
+            "default": "owmCloudCover",
+            "oneOf": [
+              { "title": "Cloud Cover (OpenWeatherMap current weather)", "enum": ["owmCloudCover"] },
+              { "title": "UV Index (OpenWeatherMap One Call 3.0)", "enum": ["owmUVIndex"] }
+            ],
+            "description": "Which weather metric to use for determining sunny/cloudy."
+          },
+          "apiKey": {
+            "type": "string",
+            "title": "OpenWeatherMap API Key",
+            "required": true,
+            "description": "Get a free key at openweathermap.org. The UV Index provider requires a One Call API 3.0 subscription."
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold",
+            "description": "For owmCloudCover: max cloud cover percentage (0–100, default 50). For owmUVIndex: minimum UV index to count as sunny (0–20, default 3)."
+          }
+        }
       },
       "verboseLog": {
         "type": "boolean",
@@ -96,13 +120,6 @@
               "minimum": -90,
               "maximum": 90,
               "description": "Maximum sun altitude."
-            },
-            "cloudCoverMax": {
-              "type": "number",
-              "title": "Max Cloud Cover (%)",
-              "required": true,
-              "default": 50,
-              "description": "0–100. Contact closes only when cloud cover is at or below this percentage. Requires an OpenWeatherMap API key. Ignored if no key is set."
             }
           }
         }

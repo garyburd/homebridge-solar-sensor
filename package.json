@@ -23,6 +23,7 @@
     "homebridge": "^1.8.0 || ^2.0.0-beta.0"
   },
   "scripts": {
+    "start": "npx homebridge -U ./test/hbConfig -D",
     "watch": "npm link && nodemon"
   },
   "dependencies": {
