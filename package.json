@@ -1,0 +1,35 @@
+{
+  "name": "homebridge-solar-sensor",
+  "displayName": "Solar Sensor",
+
+  "version": "1.0.0",
+  "description": "Homebridge plugin: contact sensor driven by sun azimuth/altitude and OpenWeatherMap cloud cover.",
+  "author": "",
+  "license": "MIT",
+  "keywords": [
+    "homebridge-plugin",
+    "homebridge",
+    "sun",
+    "solar",
+    "azimuth",
+    "altitude",
+    "contact-sensor",
+    "weather",
+    "cloud-cover"
+  ],
+  "main": "index.js",
+  "engines": {
+    "node": "^20.18.0 || ^22.10.0 || ^24.0.0",
+    "homebridge": "^1.8.0 || ^2.0.0-beta.0"
+  },
+  "scripts": {
+    "watch": "npm link && nodemon"
+  },
+  "dependencies": {
+    "suncalc": "^1.9.0"
+  },
+  "devDependencies": {
+    "homebridge": "^1.11.4",
+    "nodemon": "^3.1.11"
+  }
+}

@@ -1,0 +1,219 @@
+const SunCalc = require('suncalc');
+
+const PLUGIN_NAME = 'homebridge-solar-sensor';
+const PLATFORM_NAME = 'SolarSensor';
+
+const DEFAULT_POLL_INTERVAL = 60;          // sun-position poll (seconds)
+const WEATHER_POLL_INTERVAL = 10 * 60;     // 10 minutes (seconds)
+const DEFAULT_CLOUD_COVER_MAX = 50;        // percent
+
+module.exports = (api) => {
+  api.registerPlatform(PLATFORM_NAME, SolarSensorPlatform);
+};
+
+class SolarSensorPlatform {
+  constructor(log, config, api) {
+    this.log = log;
+    this.config = config || {};
+    this.api = api;
+    this.Service = api.hap.Service;
+    this.Characteristic = api.hap.Characteristic;
+
+    this.latitude = this.config.latitude;
+    this.longitude = this.config.longitude;
+    this.openWeatherMapApiKey = this.config.openWeatherMapApiKey || null;
+    this.pollInterval = (this.config.pollInterval || DEFAULT_POLL_INTERVAL) * 1000;
+    this.sensors = this.config.sensors || [];
+    this.verboseLog = this.config.verboseLog || false;
+
+    this.accessories = new Map();
+    this.cloudCoverPercent = null;
+
+    if (this.latitude == null || this.longitude == null) {
+      this.log.error('latitude and longitude are required in the platform config.');
+      return;
+    }
+
+    this.api.on('didFinishLaunching', () => {
+      this.log.info('Finished launching, configuring sensors…');
+      this.configureSensors();
+      this.startPolling();
+    });
+  }
+
+  configureAccessory(accessory) {
+    this.log.info('Restoring cached accessory:', accessory.displayName);
+    this.accessories.set(accessory.UUID, accessory);
+  }
+
+  // ------------------------------------------------------------------
+  // Sensor setup
+  // ------------------------------------------------------------------
+  configureSensors() {
+    const validUUIDs = new Set();
+
+    for (const sensorInput of this.sensors) {
+      const name = sensorInput.name || 'Solar Sensor';
+      const uuid = this.api.hap.uuid.generate(`${PLUGIN_NAME}.${name}`);
+      validUUIDs.add(uuid);
+
+      let accessory = this.accessories.get(uuid);
+
+      if (!accessory) {
+        this.log.info('Adding new accessory:', name);
+        accessory = new this.api.platformAccessory(name, uuid);
+        this.accessories.set(uuid, accessory);
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      }
+
+      const clamp = (val, min, max, def) => {
+        if (val == null || typeof val !== 'number' || isNaN(val)) return def;
+        return Math.min(Math.max(val, min), max);
+      };
+
+      accessory.context.sensorConfig = {
+        name,
+        azimuthMin: clamp(sensorInput.azimuthMin, 0, 360, 0),
+        azimuthMax: clamp(sensorInput.azimuthMax, 0, 360, 360),
+        altitudeMin: clamp(sensorInput.altitudeMin, -90, 90, 0),
+        altitudeMax: clamp(sensorInput.altitudeMax, -90, 90, 90),
+        cloudCoverMax: clamp(sensorInput.cloudCoverMax, 0, 100, DEFAULT_CLOUD_COVER_MAX),
+      };
+
+      let contactService = accessory.getService(this.Service.ContactSensor);
+      if (!contactService) {
+        contactService = accessory.addService(this.Service.ContactSensor, name);
+      }
+      contactService.setCharacteristic(this.Characteristic.Name, name);
+
+      const infoService = accessory.getService(this.Service.AccessoryInformation);
+      if (infoService) {
+        infoService
+          .setCharacteristic(this.Characteristic.Manufacturer, 'homebridge-solar-sensor')
+          .setCharacteristic(this.Characteristic.Model, 'Solar Sensor')
+          .setCharacteristic(this.Characteristic.SerialNumber, uuid.slice(0, 12));
+      }
+    }
+
+    for (const [uuid, accessory] of this.accessories) {
+      if (!validUUIDs.has(uuid)) {
+        this.log.info('Removing stale accessory:', accessory.displayName);
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        this.accessories.delete(uuid);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Polling loops
+  // ------------------------------------------------------------------
+  startPolling() {
+    if (this.openWeatherMapApiKey) {
+      this.log.info('OpenWeatherMap API key configured – fetching cloud cover every 10 minutes.');
+      this.fetchWeather();
+      this.weatherTimer = setInterval(
+        () => this.fetchWeather(),
+        WEATHER_POLL_INTERVAL * 1000,
+      );
+    } else {
+      this.log.info(
+        'No OpenWeatherMap API key configured – cloud cover will not be checked. '
+        + 'Sensors will trigger based on sun position only.',
+      );
+      this.updateAll();
+    }
+
+    this.sunTimer = setInterval(() => this.updateAll(), this.pollInterval);
+  }
+
+  // ------------------------------------------------------------------
+  // Weather
+  // ------------------------------------------------------------------
+  fetchWeather() {
+    const url =
+      'https://api.openweathermap.org/data/2.5/weather'
+      + `?lat=${this.latitude}&lon=${this.longitude}`
+      + `&appid=${this.openWeatherMapApiKey}`;
+
+    fetch(url)
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+
+        if (data.clouds != null && data.clouds.all != null) {
+          this.cloudCoverPercent = data.clouds.all;
+          this.log.debug(`Cloud cover updated: ${this.cloudCoverPercent}%`);
+        } else {
+          this.log.warn('OpenWeatherMap response missing clouds data:', JSON.stringify(data));
+        }
+
+        this.updateAll();
+      })
+      .catch((err) => {
+        this.log.error('Failed to fetch weather:', err.message || err);
+      });
+  }
+
+  // ------------------------------------------------------------------
+  // Sensor evaluation
+  // ------------------------------------------------------------------
+  updateAll() {
+    const now = new Date();
+    const pos = SunCalc.getPosition(now, this.latitude, this.longitude);
+
+    let azimuthDeg = ((pos.azimuth * 180) / Math.PI + 180) % 360;
+    let altitudeDeg = (pos.altitude * 180) / Math.PI;
+
+    azimuthDeg = Math.round(azimuthDeg * 100) / 100;
+    altitudeDeg = Math.round(altitudeDeg * 100) / 100;
+
+    const logFn = this.verboseLog ? this.log.info.bind(this.log) : this.log.debug.bind(this.log);
+
+    for (const [, accessory] of this.accessories) {
+      const cfg = accessory.context.sensorConfig;
+      if (!cfg) {
+        continue;
+      }
+
+      const azimuthInRange = this.isInRange(azimuthDeg, cfg.azimuthMin, cfg.azimuthMax);
+      const altitudeInRange = this.isInRange(altitudeDeg, cfg.altitudeMin, cfg.altitudeMax);
+      const sunInWindow = azimuthInRange && altitudeInRange;
+
+      let skyIsClear = true;
+      if (this.cloudCoverPercent != null) {
+        skyIsClear = this.cloudCoverPercent <= cfg.cloudCoverMax;
+      }
+
+      const shouldClose = sunInWindow && skyIsClear;
+
+      const contactState = shouldClose
+        ? this.Characteristic.ContactSensorState.CONTACT_DETECTED
+        : this.Characteristic.ContactSensorState.CONTACT_NOT_DETECTED;
+
+      const contactService = accessory.getService(this.Service.ContactSensor);
+      if (contactService) {
+        contactService.updateCharacteristic(
+          this.Characteristic.ContactSensorState,
+          contactState,
+        );
+      }
+
+      const cloudStr = this.cloudCoverPercent != null ? `${this.cloudCoverPercent}%` : 'n/a';
+      logFn(
+        `[${cfg.name}] az ${azimuthDeg}° [${cfg.azimuthMin}–${cfg.azimuthMax}]: ${azimuthInRange}, `
+        + `alt ${altitudeDeg}° [${cfg.altitudeMin}–${cfg.altitudeMax}]: ${altitudeInRange}, `
+        + `clouds ${cloudStr} [≤${cfg.cloudCoverMax}%]: ${skyIsClear} → `
+        + `${shouldClose ? 'CLOSED' : 'OPEN'}`,
+      );
+    }
+  }
+
+  isInRange(value, min, max) {
+    if (min <= max) {
+      return value >= min && value <= max;
+    }
+    return value >= min || value <= max;
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "pluginAlias": "SolarSensor",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Exposes contact sensors that close when the sun's azimuth and altitude fall within configured ranges and (optionally) cloud cover is below a threshold.",
+  "footerDisplay": "Azimuth is measured in degrees from north (0° = north, 90° = east, 180° = south, 270° = west). Altitude is degrees above the horizon (0° = horizon, 90° = zenith). Negative altitudes mean the sun is below the horizon. Get a free OpenWeatherMap API key at https://openweathermap.org/appid.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "title": "Platform Name",
+        "default": "Solar Sensor",
+        "required": true
+      },
+      "latitude": {
+        "type": "number",
+        "title": "Latitude",
+        "required": true,
+        "description": "Your location's latitude (e.g. 47.978)"
+      },
+      "longitude": {
+        "type": "number",
+        "title": "Longitude",
+        "required": true,
+        "description": "Your location's longitude (e.g. -122.202)"
+      },
+      "openWeatherMapApiKey": {
+        "type": "string",
+        "title": "OpenWeatherMap API Key",
+        "required": false,
+        "description": "Optional. When provided, cloud cover is fetched every 10 minutes and used to gate the contact sensor. Get a free key at openweathermap.org."
+      },
+      "pollInterval": {
+        "type": "number",
+        "title": "Solar Sensor Poll Interval (seconds)",
+        "default": 60,
+        "required": false,
+        "description": "How often to recalculate the sun position (in seconds). Weather is always fetched every 10 minutes independently."
+      },
+      "verboseLog": {
+        "type": "boolean",
+        "title": "Verbose Logging",
+        "default": false,
+        "required": false,
+        "description": "Log sun position, cloud cover, and sensor state at info level every poll interval."
+      },
+      "sensors": {
+        "type": "array",
+        "title": "Sensors",
+        "required": true,
+        "default": [],
+        "items": {
+          "type": "object",
+          "title": "Sensor",
+          "required": true,
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Sensor Name",
+              "required": true,
+              "description": "The name shown in HomeKit. Must be unique."
+            },
+            "azimuthMin": {
+              "type": "number",
+              "title": "Azimuth Min (°)",
+              "required": true,
+              "default": 0,
+              "minimum": 0,
+              "maximum": 360,
+              "description": "Start of the azimuth window (degrees from north, clockwise)."
+            },
+            "azimuthMax": {
+              "type": "number",
+              "title": "Azimuth Max (°)",
+              "required": true,
+              "default": 360,
+              "minimum": 0,
+              "maximum": 360,
+              "description": "End of the azimuth window. If min > max the range wraps through north (0°)."
+            },
+            "altitudeMin": {
+              "type": "number",
+              "title": "Altitude Min (°)",
+              "required": true,
+              "default": 0,
+              "minimum": -90,
+              "maximum": 90,
+              "description": "Minimum sun altitude (degrees above horizon)."
+            },
+            "altitudeMax": {
+              "type": "number",
+              "title": "Altitude Max (°)",
+              "required": true,
+              "default": 90,
+              "minimum": -90,
+              "maximum": 90,
+              "description": "Maximum sun altitude."
+            },
+            "cloudCoverMax": {
+              "type": "number",
+              "title": "Max Cloud Cover (%)",
+              "required": true,
+              "default": 50,
+              "description": "0–100. Contact closes only when cloud cover is at or below this percentage. Requires an OpenWeatherMap API key. Ignored if no key is set."
+            }
+          }
+        }
+      }
+    }
+  }
+}
