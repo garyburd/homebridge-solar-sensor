@@ -7,6 +7,18 @@ const DEFAULT_POLL_INTERVAL = 60;          // sun-position poll (seconds)
 const WEATHER_POLL_INTERVAL = 10 * 60;     // 10 minutes (seconds)
 const DEFAULT_CLOUD_COVER_MAX = 50;        // percent
 
+function clamp(val, min, max, def) {
+  if (val == null || typeof val !== 'number' || isNaN(val)) return def;
+  return Math.min(Math.max(val, min), max);
+}
+
+function isInRange(value, min, max) {
+  if (min <= max) {
+    return value >= min && value <= max;
+  }
+  return value >= min || value <= max;
+}
+
 module.exports = (api) => {
   api.registerPlatform(PLATFORM_NAME, SolarSensorPlatform);
 };
@@ -27,17 +39,29 @@ class SolarSensorPlatform {
     this.verboseLog = this.config.verboseLog || false;
 
     this.accessories = new Map();
-    this.cloudCoverPercent = null;
+    this.cloudCover = null;
+    this.lastWeatherFetch = 0;
+    this.updating = false;
 
     if (this.latitude == null || this.longitude == null) {
       this.log.error('latitude and longitude are required in the platform config.');
       return;
     }
 
-    this.api.on('didFinishLaunching', () => {
+    if (this.openWeatherMapApiKey) {
+      this.log.info('OpenWeatherMap API key configured – cloud cover fetched on demand.');
+    } else {
+      this.log.info(
+        'No OpenWeatherMap API key configured – cloud cover will not be checked. '
+        + 'Sensors will trigger based on sun position only.',
+      );
+    }
+
+    this.api.on('didFinishLaunching', async () => {
       this.log.info('Finished launching, configuring sensors…');
       this.configureSensors();
-      this.startPolling();
+      await this.updateAll();
+      this.updateTimer = setInterval(() => this.updateAll(), this.pollInterval);
     });
   }
 
@@ -65,11 +89,6 @@ class SolarSensorPlatform {
         this.accessories.set(uuid, accessory);
         this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       }
-
-      const clamp = (val, min, max, def) => {
-        if (val == null || typeof val !== 'number' || isNaN(val)) return def;
-        return Math.min(Math.max(val, min), max);
-      };
 
       accessory.context.sensorConfig = {
         name,
@@ -105,28 +124,6 @@ class SolarSensorPlatform {
   }
 
   // ------------------------------------------------------------------
-  // Polling loops
-  // ------------------------------------------------------------------
-  startPolling() {
-    if (this.openWeatherMapApiKey) {
-      this.log.info('OpenWeatherMap API key configured – fetching cloud cover every 10 minutes.');
-      this.fetchWeather();
-      this.weatherTimer = setInterval(
-        () => this.fetchWeather(),
-        WEATHER_POLL_INTERVAL * 1000,
-      );
-    } else {
-      this.log.info(
-        'No OpenWeatherMap API key configured – cloud cover will not be checked. '
-        + 'Sensors will trigger based on sun position only.',
-      );
-      this.updateAll();
-    }
-
-    this.sunTimer = setInterval(() => this.updateAll(), this.pollInterval);
-  }
-
-  // ------------------------------------------------------------------
   // Weather
   // ------------------------------------------------------------------
   fetchWeather() {
@@ -135,41 +132,59 @@ class SolarSensorPlatform {
       + `?lat=${this.latitude}&lon=${this.longitude}`
       + `&appid=${this.openWeatherMapApiKey}`;
 
-    fetch(url)
+    return fetch(url, { signal: AbortSignal.timeout(15000) })
       .then(async (res) => {
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
         const data = await res.json();
 
-        if (data.clouds != null && data.clouds.all != null) {
-          this.cloudCoverPercent = data.clouds.all;
-          this.log.debug(`Cloud cover updated: ${this.cloudCoverPercent}%`);
-        } else {
-          this.log.warn('OpenWeatherMap response missing clouds data:', JSON.stringify(data));
+        const value = data.clouds?.all;
+        if (typeof value !== 'number' || isNaN(value)) {
+          throw new Error('response missing numeric cloud cover');
         }
-
-        this.updateAll();
+        this.cloudCover = value;
+        this.log.debug(`Cloud cover updated: ${this.cloudCover}%`);
       })
       .catch((err) => {
         this.log.error('Failed to fetch weather:', err.message || err);
+        this.cloudCover = null;
+      })
+      .finally(() => {
+        this.lastWeatherFetch = Date.now();
       });
   }
 
   // ------------------------------------------------------------------
   // Sensor evaluation
   // ------------------------------------------------------------------
-  updateAll() {
-    const now = new Date();
-    const pos = SunCalc.getPosition(now, this.latitude, this.longitude);
+  async updateAll() {
+    if (this.updating) return;
+    this.updating = true;
 
-    let azimuthDeg = ((pos.azimuth * 180) / Math.PI + 180) % 360;
-    let altitudeDeg = (pos.altitude * 180) / Math.PI;
+    const pos = SunCalc.getPosition(new Date(), this.latitude, this.longitude);
 
-    azimuthDeg = Math.round(azimuthDeg * 100) / 100;
-    altitudeDeg = Math.round(altitudeDeg * 100) / 100;
+    const azimuth = ((pos.azimuth * 180) / Math.PI + 180) % 360;
+    const altitude = (pos.altitude * 180) / Math.PI;
 
     const logFn = this.verboseLog ? this.log.info.bind(this.log) : this.log.debug.bind(this.log);
+
+    // Fetch weather on demand: only when sun is in at least one window and data is stale.
+    if (this.openWeatherMapApiKey) {
+      const age = Date.now() - this.lastWeatherFetch;
+      if (age >= WEATHER_POLL_INTERVAL * 1000) {
+        this.cloudCover = null;
+        for (const [, accessory] of this.accessories) {
+          const cfg = accessory.context.sensorConfig;
+          if (!cfg) continue;
+          if (isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax)
+              && isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax)) {
+            await this.fetchWeather();
+            break;
+          }
+        }
+      }
+    }
 
     for (const [, accessory] of this.accessories) {
       const cfg = accessory.context.sensorConfig;
@@ -177,43 +192,31 @@ class SolarSensorPlatform {
         continue;
       }
 
-      const azimuthInRange = this.isInRange(azimuthDeg, cfg.azimuthMin, cfg.azimuthMax);
-      const altitudeInRange = this.isInRange(altitudeDeg, cfg.altitudeMin, cfg.altitudeMax);
+      const azimuthInRange = isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax);
+      const altitudeInRange = isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax);
       const sunInWindow = azimuthInRange && altitudeInRange;
-
-      let skyIsClear = true;
-      if (this.cloudCoverPercent != null) {
-        skyIsClear = this.cloudCoverPercent <= cfg.cloudCoverMax;
-      }
-
+      const skyIsClear = this.cloudCover == null || this.cloudCover <= cfg.cloudCoverMax;
       const shouldClose = sunInWindow && skyIsClear;
-
-      const contactState = shouldClose
-        ? this.Characteristic.ContactSensorState.CONTACT_DETECTED
-        : this.Characteristic.ContactSensorState.CONTACT_NOT_DETECTED;
 
       const contactService = accessory.getService(this.Service.ContactSensor);
       if (contactService) {
         contactService.updateCharacteristic(
           this.Characteristic.ContactSensorState,
-          contactState,
+          shouldClose
+            ? this.Characteristic.ContactSensorState.CONTACT_DETECTED
+            : this.Characteristic.ContactSensorState.CONTACT_NOT_DETECTED,
         );
       }
 
-      const cloudStr = this.cloudCoverPercent != null ? `${this.cloudCoverPercent}%` : 'n/a';
       logFn(
-        `[${cfg.name}] az ${azimuthDeg}° [${cfg.azimuthMin}–${cfg.azimuthMax}]: ${azimuthInRange}, `
-        + `alt ${altitudeDeg}° [${cfg.altitudeMin}–${cfg.altitudeMax}]: ${altitudeInRange}, `
-        + `clouds ${cloudStr} [≤${cfg.cloudCoverMax}%]: ${skyIsClear} → `
+        `[${cfg.name}] az ${azimuth} [${cfg.azimuthMin}–${cfg.azimuthMax}]: ${azimuthInRange}, `
+        + `alt ${altitude} [${cfg.altitudeMin}–${cfg.altitudeMax}]: ${altitudeInRange}, `
+        + `clouds ${this.cloudCover} [≤${cfg.cloudCoverMax}]: ${skyIsClear} → `
         + `${shouldClose ? 'CLOSED' : 'OPEN'}`,
       );
     }
+
+    this.updating = false;
   }
 
-  isInRange(value, min, max) {
-    if (min <= max) {
-      return value >= min && value <= max;
-    }
-    return value >= min || value <= max;
-  }
 }
