@@ -62,13 +62,6 @@
           }
         }
       },
-      "verboseLog": {
-        "type": "boolean",
-        "title": "Verbose Logging",
-        "default": false,
-        "required": false,
-        "description": "Log sun position, cloud cover, and sensor state at info level every poll interval."
-      },
       "sensors": {
         "type": "array",
         "title": "Sensors",

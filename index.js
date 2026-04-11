@@ -21,15 +21,20 @@ function isInRange(value, min, max) {
 // Weather provider base class
 // ------------------------------------------------------------------
 class WeatherProvider {
-  constructor(name, log, statusLog, latitude, longitude, pollInterval) {
+  constructor(name, platform, pollInterval) {
     this.name = name;
-    this.log = log;
-    this.statusLog = statusLog;
-    this.latitude = latitude;
-    this.longitude = longitude;
+    this.platform = platform;
     this.pollInterval = pollInterval;
     this.lastUpdateTime = 0;
     this.sunny = true;
+  }
+
+  async fetchJSON(url) {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    return res.json();
   }
 
   async isSunny() {
@@ -37,7 +42,7 @@ class WeatherProvider {
       try {
         this.sunny = await this._fetch();
       } catch (err) {
-        this.log.error('[%s] Failed to fetch weather:', this.name, err.message || err);
+        this.platform.log.error(`[${this.name}] Failed to fetch weather: ${err.message || err}`);
         this.sunny = true;
       } finally {
         this.lastUpdateTime = Date.now();
@@ -51,8 +56,8 @@ class WeatherProvider {
 // Cloud-cover provider – OpenWeatherMap current weather API
 // ------------------------------------------------------------------
 class OpenWeatherMapProvider extends WeatherProvider {
-  constructor(log, statusLog, latitude, longitude, apiKey, threshold) {
-    super('OWM Cloud Cover', log, statusLog, latitude, longitude, 10 * 60 * 1000);
+  constructor(platform, apiKey, threshold) {
+    super('OWM Cloud Cover', platform, 10 * 60 * 1000);
     this.apiKey = apiKey;
     this.threshold = clamp(threshold, 0, 100, 50);
   }
@@ -60,23 +65,17 @@ class OpenWeatherMapProvider extends WeatherProvider {
   async _fetch() {
     const url =
       'https://api.openweathermap.org/data/2.5/weather'
-      + `?lat=${this.latitude}&lon=${this.longitude}`
+      + `?lat=${this.platform.latitude}&lon=${this.platform.longitude}`
       + `&appid=${this.apiKey}`;
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const data = await res.json();
+    const data = await this.fetchJSON(url);
 
     const value = data.clouds?.all;
     if (typeof value !== 'number' || isNaN(value)) {
       throw new Error('response missing numeric cloud cover');
     }
     const sunny = value <= this.threshold;
-    this.statusLog(
-      `[${this.name}] ${value}% (threshold ${this.threshold}%) → ${sunny ? 'sunny' : 'cloudy'}`,
-    );
+    this.platform.log.info(`[${this.name}] ${value}% (threshold ${this.threshold}%) → ${sunny ? 'sunny' : 'cloudy'}`);
     return sunny;
   }
 }
@@ -85,8 +84,8 @@ class OpenWeatherMapProvider extends WeatherProvider {
 // UV-index provider – OpenWeatherMap One Call API 3.0
 // ------------------------------------------------------------------
 class OpenWeatherMapUVProvider extends WeatherProvider {
-  constructor(log, statusLog, latitude, longitude, apiKey, threshold) {
-    super('OWM UV Index', log, statusLog, latitude, longitude, 10 * 60 * 1000);
+  constructor(platform, apiKey, threshold) {
+    super('OWM UV Index', platform, 10 * 60 * 1000);
     this.apiKey = apiKey;
     this.threshold = clamp(threshold, 0, 20, 3);
   }
@@ -94,24 +93,18 @@ class OpenWeatherMapUVProvider extends WeatherProvider {
   async _fetch() {
     const url =
       'https://api.openweathermap.org/data/3.0/onecall'
-      + `?lat=${this.latitude}&lon=${this.longitude}`
+      + `?lat=${this.platform.latitude}&lon=${this.platform.longitude}`
       + '&exclude=minutely,hourly,daily,alerts'
       + `&appid=${this.apiKey}`;
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const data = await res.json();
+    const data = await this.fetchJSON(url);
 
     const value = data.current?.uvi;
     if (typeof value !== 'number' || isNaN(value)) {
       throw new Error('response missing numeric UV index');
     }
     const sunny = value >= this.threshold;
-    this.statusLog(
-      `[${this.name}] UVI ${value} (threshold ${this.threshold}) → ${sunny ? 'sunny' : 'cloudy'}`,
-    );
+    this.platform.log.info(`[${this.name}] UVI ${value} (threshold ${this.threshold}) → ${sunny ? 'sunny' : 'cloudy'}`);
     return sunny;
   }
 }
@@ -128,13 +121,11 @@ class SolarSensorPlatform {
     this.latitude = this.config.latitude;
     this.longitude = this.config.longitude;
     this.pollInterval = (this.config.pollInterval || DEFAULT_POLL_INTERVAL) * 1000;
-    this.statusLog = this.config.verboseLog
-      ? this.log.info.bind(this.log)
-      : this.log.debug.bind(this.log);
 
     this.accessories = new Map();
     this.weatherProvider = null;
     this.updating = false;
+    this.lastPositionLogTime = 0;
 
     if (this.latitude == null || this.longitude == null) {
       this.log.error('latitude and longitude are required in the platform config.');
@@ -151,14 +142,10 @@ class SolarSensorPlatform {
       if (!wp.apiKey) {
         this.log.error('weatherProvider.apiKey is required.');
       } else if (!Provider) {
-        this.log.error('Unknown weather provider: %s', wp.provider);
+        this.log.error(`Unknown weather provider: ${wp.provider}`);
       } else {
-        this.weatherProvider = new Provider(
-          this.log, this.statusLog,
-          this.latitude, this.longitude,
-          wp.apiKey, wp.threshold,
-        );
-        this.log.info('Weather provider: %s (threshold %s).', this.weatherProvider.name, this.weatherProvider.threshold);
+        this.weatherProvider = new Provider(this, wp.apiKey, wp.threshold);
+        this.log.info(`Weather provider: ${this.weatherProvider.name} (threshold ${this.weatherProvider.threshold}).`);
       }
     }
 
@@ -179,6 +166,7 @@ class SolarSensorPlatform {
   // Sensor setup
   // ------------------------------------------------------------------
   configureSensors() {
+    const { Service, Characteristic } = this.api.hap;
     const validUUIDs = new Set();
 
     for (const sensorInput of (this.config.sensors || [])) {
@@ -195,26 +183,28 @@ class SolarSensorPlatform {
         this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       }
 
-      accessory.context.sensorConfig = {
+      const cfg = {
         name,
         azimuthMin: clamp(sensorInput.azimuthMin, 0, 360, 0),
         azimuthMax: clamp(sensorInput.azimuthMax, 0, 360, 360),
         altitudeMin: clamp(sensorInput.altitudeMin, -90, 90, 0),
         altitudeMax: clamp(sensorInput.altitudeMax, -90, 90, 90),
       };
+      accessory.context.sensorConfig = cfg;
+      delete accessory.context.lastState; // clear persisted state so first poll logs at info
 
-      let contactService = accessory.getService(this.api.hap.Service.ContactSensor);
+      let contactService = accessory.getService(Service.ContactSensor);
       if (!contactService) {
-        contactService = accessory.addService(this.api.hap.Service.ContactSensor, name);
+        contactService = accessory.addService(Service.ContactSensor, name);
       }
-      contactService.setCharacteristic(this.api.hap.Characteristic.Name, name);
+      contactService.setCharacteristic(Characteristic.Name, name);
 
-      const infoService = accessory.getService(this.api.hap.Service.AccessoryInformation);
+      const infoService = accessory.getService(Service.AccessoryInformation);
       if (infoService) {
         infoService
-          .setCharacteristic(this.api.hap.Characteristic.Manufacturer, 'homebridge-solar-sensor')
-          .setCharacteristic(this.api.hap.Characteristic.Model, 'Solar Sensor')
-          .setCharacteristic(this.api.hap.Characteristic.SerialNumber, uuid.slice(0, 12));
+          .setCharacteristic(Characteristic.Manufacturer, 'homebridge-solar-sensor')
+          .setCharacteristic(Characteristic.Model, 'Solar Sensor')
+          .setCharacteristic(Characteristic.SerialNumber, uuid.slice(0, 12));
       }
     }
 
@@ -234,43 +224,61 @@ class SolarSensorPlatform {
     if (this.updating) return;
     this.updating = true;
 
-    const pos = SunCalc.getPosition(new Date(), this.latitude, this.longitude);
+    try {
+      const { Service, Characteristic } = this.api.hap;
+      const pos = SunCalc.getPosition(new Date(), this.latitude, this.longitude);
 
-    const azimuth = ((pos.azimuth * 180) / Math.PI + 180) % 360;
-    const altitude = (pos.altitude * 180) / Math.PI;
+      const azimuth = ((pos.azimuth * 180) / Math.PI + 180) % 360;
+      const altitude = (pos.altitude * 180) / Math.PI;
 
-    for (const [, accessory] of this.accessories) {
-      const cfg = accessory.context.sensorConfig;
-      if (!cfg) {
-        continue;
-      }
+      for (const [, accessory] of this.accessories) {
+        const cfg = accessory.context.sensorConfig;
+        if (!cfg) {
+          continue;
+        }
 
-      const azimuthInRange = isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax);
-      const altitudeInRange = isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax);
-      let shouldClose = azimuthInRange && altitudeInRange;
-      // Only check weather when sun is in window to reduce API calls.
-      if (shouldClose && this.weatherProvider) {
-        shouldClose = await this.weatherProvider.isSunny();
-      }
+        const azimuthInRange = isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax);
+        const altitudeInRange = isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax);
+        let isSunny = true;
+        let shouldClose = azimuthInRange && altitudeInRange;
+        // Only check weather when sun is in window to reduce API calls.
+        if (shouldClose && this.weatherProvider) {
+          isSunny = await this.weatherProvider.isSunny();
+          shouldClose = isSunny;
+        }
 
-      const contactService = accessory.getService(this.api.hap.Service.ContactSensor);
-      if (contactService) {
-        contactService.updateCharacteristic(
-          this.api.hap.Characteristic.ContactSensorState,
-          shouldClose
-            ? this.api.hap.Characteristic.ContactSensorState.CONTACT_DETECTED
-            : this.api.hap.Characteristic.ContactSensorState.CONTACT_NOT_DETECTED,
+        const contactService = accessory.getService(Service.ContactSensor);
+        if (contactService) {
+          contactService.updateCharacteristic(
+            Characteristic.ContactSensorState,
+            shouldClose
+              ? Characteristic.ContactSensorState.CONTACT_DETECTED
+              : Characteristic.ContactSensorState.CONTACT_NOT_DETECTED,
+          );
+        }
+
+        // lastState is undefined on first poll, so info is always used initially.
+        const changed = accessory.context.lastState !== shouldClose;
+        accessory.context.lastState = shouldClose;
+        const log = changed ? this.log.info : this.log.debug;
+        log.call(this.log,
+          `[${cfg.name}] az ${azimuth.toFixed(2)} [${cfg.azimuthMin}–${cfg.azimuthMax}]: ${azimuthInRange}, `
+          + `alt ${altitude.toFixed(2)} [${cfg.altitudeMin}–${cfg.altitudeMax}]: ${altitudeInRange}, `
+          + `sunny: ${isSunny} → ${shouldClose ? 'CLOSED' : 'OPEN'}`,
         );
       }
 
-      this.statusLog(
-        `[${cfg.name}] az ${azimuth} [${cfg.azimuthMin}–${cfg.azimuthMax}]: ${azimuthInRange}, `
-        + `alt ${altitude} [${cfg.altitudeMin}–${cfg.altitudeMax}]: ${altitudeInRange} → `
-        + `${shouldClose ? 'CLOSED' : 'OPEN'}`,
-      );
+      if (Date.now() - this.lastPositionLogTime >= 10 * 60 * 1000) {
+        const states = [...this.accessories.values()]
+          .filter(a => a.context.sensorConfig)
+          .map(a => `${a.context.sensorConfig.name}: ${a.context.lastState ? 'CLOSED' : 'OPEN'}`)
+          .join(', ');
+        this.log.info(`Sun position: az ${azimuth.toFixed(2)}, alt ${altitude.toFixed(2)} — ${states}`);
+        this.lastPositionLogTime = Date.now();
+      }
+    } finally {
+      this.updating = false;
     }
-
-    this.updating = false;
   }
 
 }
