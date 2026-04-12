@@ -2,7 +2,7 @@
 
 A [Homebridge](https://homebridge.io) plugin that exposes **ContactSensor** accessories whose state is determined by the sun's position in the sky and (optionally) real-time weather conditions from [OpenWeatherMap](https://openweathermap.org).
 
-The contact sensor **closes** (CONTACT_DETECTED) when all of the following are true:
+The contact sensor **opens** (CONTACT_NOT_DETECTED) when all of the following are true:
 
 1. The sun's **azimuth** is within the sensor's configured range.
 2. The sun's **altitude** is within the sensor's configured range.
@@ -98,7 +98,6 @@ If you use Homebridge UI (config-ui-x), the plugin provides a full schema so you
 | `longitude` | number | yes | — | Location longitude (−180 to 180) |
 | `pollInterval` | integer | no | `60` | Seconds between sun-position recalculations. |
 | `weatherProvider` | object | no | — | Weather provider configuration (see below). When omitted, sensors fire on sun position alone. |
-| `verboseLog` | boolean | no | `false` | Log sun position and sensor state at info level every poll interval. |
 
 ### Weather Provider Fields
 
@@ -143,9 +142,9 @@ A sensor's contact state is determined by:
 
 | Sun in azimuth/altitude window? | Weather provider says sunny? | Contact state |
 |---|---|---|
-| Yes | Yes (or no provider configured) | **Closed** (CONTACT_DETECTED) |
-| Yes | No | Open |
-| No | — | Open |
+| Yes | Yes (or no provider configured) | **Open** (CONTACT_NOT_DETECTED) |
+| Yes | No | Closed |
+| No | — | Closed |
 
 ---
 
@@ -171,7 +170,7 @@ The free tier allows up to 1,000 API calls per day. Weather is only fetched when
 
 ## Troubleshooting
 
-Set `"verboseLog": true` in the platform config to log sun position and sensor state at info level. For full debug output:
+Sensor state changes are logged at info level. Sun position is logged at info level every 10 minutes. For full debug output on every poll:
 
 ```bash
 homebridge -D

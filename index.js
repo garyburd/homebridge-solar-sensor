@@ -240,38 +240,38 @@ class SolarSensorPlatform {
         const azimuthInRange = isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax);
         const altitudeInRange = isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax);
         let isSunny = true;
-        let shouldClose = azimuthInRange && altitudeInRange;
+        let state = azimuthInRange && altitudeInRange;
         // Only check weather when sun is in window to reduce API calls.
-        if (shouldClose && this.weatherProvider) {
+        if (state && this.weatherProvider) {
           isSunny = await this.weatherProvider.isSunny();
-          shouldClose = isSunny;
+          state = isSunny;
         }
 
         const contactService = accessory.getService(Service.ContactSensor);
         if (contactService) {
           contactService.updateCharacteristic(
             Characteristic.ContactSensorState,
-            shouldClose
-              ? Characteristic.ContactSensorState.CONTACT_DETECTED
-              : Characteristic.ContactSensorState.CONTACT_NOT_DETECTED,
+            state
+              ? Characteristic.ContactSensorState.CONTACT_NOT_DETECTED
+              : Characteristic.ContactSensorState.CONTACT_DETECTED,
           );
         }
 
         // lastState is undefined on first poll, so info is always used initially.
-        const changed = accessory.context.lastState !== shouldClose;
-        accessory.context.lastState = shouldClose;
+        const changed = accessory.context.lastState !== state;
+        accessory.context.lastState = state;
         const log = changed ? this.log.info : this.log.debug;
         log.call(this.log,
           `[${cfg.name}] az ${azimuth.toFixed(2)} [${cfg.azimuthMin}–${cfg.azimuthMax}]: ${azimuthInRange}, `
           + `alt ${altitude.toFixed(2)} [${cfg.altitudeMin}–${cfg.altitudeMax}]: ${altitudeInRange}, `
-          + `sunny: ${isSunny} → ${shouldClose ? 'CLOSED' : 'OPEN'}`,
+          + `sunny: ${isSunny} → ${state ? 'OPEN' : 'CLOSED'}`,
         );
       }
 
       if (Date.now() - this.lastPositionLogTime >= 10 * 60 * 1000) {
         const states = [...this.accessories.values()]
           .filter(a => a.context.sensorConfig)
-          .map(a => `${a.context.sensorConfig.name}: ${a.context.lastState ? 'CLOSED' : 'OPEN'}`)
+          .map(a => `${a.context.sensorConfig.name}: ${a.context.lastState ? 'OPEN' : 'CLOSED'}`)
           .join(', ');
         this.log.info(`Sun position: az ${azimuth.toFixed(2)}, alt ${altitude.toFixed(2)} — ${states}`);
         this.lastPositionLogTime = Date.now();
