@@ -224,13 +224,16 @@ class SolarSensorPlatform {
       }
 
       accessory.context.switchConfig = { name };
-      this.switchStates.set(uuid, false);
 
       let switchService = accessory.getService(Service.Switch);
       if (!switchService) {
         switchService = accessory.addService(Service.Switch, name);
       }
       switchService.setCharacteristic(Characteristic.Name, name);
+
+      const on = !!switchService.getCharacteristic(Characteristic.On).value;
+      this.switchStates.set(uuid, on);
+      this.log.info(`[${name}] switch: ${on ? 'ON' : 'OFF'}`);
 
       switchService.getCharacteristic(Characteristic.On)
         .onGet(() => this.switchStates.get(uuid) || false)
@@ -273,40 +276,40 @@ class SolarSensorPlatform {
       const azimuth = ((pos.azimuth * 180) / Math.PI + 180) % 360;
       const altitude = (pos.altitude * 180) / Math.PI;
 
-      let anyChanged = false;
+      const isSunny = altitude > 0
+        && ((!this.weatherProvider && this.switchStates.size === 0)
+          || [...this.switchStates.values()].some(v => v)
+          || (this.weatherProvider && await this.weatherProvider.isSunny()));
+
+      let logStatus = Date.now() - this.lastPositionLogTime >= 10 * 60 * 1000;
+
       for (const [, accessory] of this.accessories) {
         const cfg = accessory.context.sensorConfig;
-        if (!cfg) {
-          continue;
-        }
-
-        const state = isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax)
-          && isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax)
-          && ((!this.weatherProvider && this.switchStates.size === 0)
-            || [...this.switchStates.values()].some(v => v)
-            || (this.weatherProvider && await this.weatherProvider.isSunny()));
-
+        if (!cfg) continue;
         const contactService = accessory.getService(Service.ContactSensor);
-        if (contactService) {
-          contactService.updateCharacteristic(
-            Characteristic.ContactSensorState,
-            state
-              ? Characteristic.ContactSensorState.CONTACT_NOT_DETECTED
-              : Characteristic.ContactSensorState.CONTACT_DETECTED,
-          );
-        }
+        if (!contactService) continue;
 
-        const changed = accessory.context.lastState !== state;
+        const state = isSunny
+          && isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax)
+          && isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax);
+
+        contactService.updateCharacteristic(
+          Characteristic.ContactSensorState,
+          state
+            ? Characteristic.ContactSensorState.CONTACT_NOT_DETECTED
+            : Characteristic.ContactSensorState.CONTACT_DETECTED,
+        );
+
+        logStatus = logStatus || accessory.context.lastState !== state;
         accessory.context.lastState = state;
-        anyChanged = anyChanged || changed;
       }
 
-      if (anyChanged || Date.now() - this.lastPositionLogTime >= 10 * 60 * 1000) {
+      if (logStatus) {
         const states = [...this.accessories.values()]
           .filter(a => a.context.sensorConfig)
           .map(a => `${a.context.sensorConfig.name}: ${a.context.lastState ? 'OPEN' : 'CLOSED'}`)
           .join(', ');
-        this.log.info(`az ${azimuth.toFixed(2)}, alt ${altitude.toFixed(2)} — ${states}`);
+        this.log.info(`az: ${azimuth.toFixed(2)}, alt: ${altitude.toFixed(2)}, sunny: ${isSunny} — ${states}`);
         this.lastPositionLogTime = Date.now();
       }
     } finally {
