@@ -123,6 +123,7 @@ class SolarSensorPlatform {
     this.pollInterval = (this.config.pollInterval || DEFAULT_POLL_INTERVAL) * 1000;
 
     this.accessories = new Map();
+    this.switchStates = new Map();
     this.weatherProvider = null;
     this.updating = false;
     this.lastPositionLogTime = 0;
@@ -191,7 +192,7 @@ class SolarSensorPlatform {
         altitudeMax: clamp(sensorInput.altitudeMax, -90, 90, 90),
       };
       accessory.context.sensorConfig = cfg;
-      delete accessory.context.lastState; // clear persisted state so first poll logs at info
+      this.log.info(`[${name}] azimuth ${cfg.azimuthMin}–${cfg.azimuthMax}°, altitude ${cfg.altitudeMin}–${cfg.altitudeMax}°`);
 
       let contactService = accessory.getService(Service.ContactSensor);
       if (!contactService) {
@@ -204,6 +205,47 @@ class SolarSensorPlatform {
         infoService
           .setCharacteristic(Characteristic.Manufacturer, 'homebridge-solar-sensor')
           .setCharacteristic(Characteristic.Model, 'Solar Sensor')
+          .setCharacteristic(Characteristic.SerialNumber, uuid.slice(0, 12));
+      }
+    }
+
+    for (const switchInput of (this.config.sunnySwitches || [])) {
+      const name = switchInput.name || 'Sunny Switch';
+      const uuid = this.api.hap.uuid.generate(`${PLUGIN_NAME}.switch.${name}`);
+      validUUIDs.add(uuid);
+
+      let accessory = this.accessories.get(uuid);
+
+      if (!accessory) {
+        this.log.info('Adding new sunny switch:', name);
+        accessory = new this.api.platformAccessory(name, uuid);
+        this.accessories.set(uuid, accessory);
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      }
+
+      accessory.context.switchConfig = { name };
+      this.switchStates.set(uuid, false);
+
+      let switchService = accessory.getService(Service.Switch);
+      if (!switchService) {
+        switchService = accessory.addService(Service.Switch, name);
+      }
+      switchService.setCharacteristic(Characteristic.Name, name);
+
+      switchService.getCharacteristic(Characteristic.On)
+        .onGet(() => this.switchStates.get(uuid) || false)
+        .onSet((value) => {
+          const on = !!value;
+          this.switchStates.set(uuid, on);
+          this.log.info(`[${name}] switch → ${on ? 'ON' : 'OFF'}`);
+          this.updateAll();
+        });
+
+      const infoService = accessory.getService(Service.AccessoryInformation);
+      if (infoService) {
+        infoService
+          .setCharacteristic(Characteristic.Manufacturer, 'homebridge-solar-sensor')
+          .setCharacteristic(Characteristic.Model, 'Sunny Switch')
           .setCharacteristic(Characteristic.SerialNumber, uuid.slice(0, 12));
       }
     }
@@ -231,21 +273,18 @@ class SolarSensorPlatform {
       const azimuth = ((pos.azimuth * 180) / Math.PI + 180) % 360;
       const altitude = (pos.altitude * 180) / Math.PI;
 
+      let anyChanged = false;
       for (const [, accessory] of this.accessories) {
         const cfg = accessory.context.sensorConfig;
         if (!cfg) {
           continue;
         }
 
-        const azimuthInRange = isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax);
-        const altitudeInRange = isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax);
-        let isSunny = true;
-        let state = azimuthInRange && altitudeInRange;
-        // Only check weather when sun is in window to reduce API calls.
-        if (state && this.weatherProvider) {
-          isSunny = await this.weatherProvider.isSunny();
-          state = isSunny;
-        }
+        const state = isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax)
+          && isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax)
+          && ((!this.weatherProvider && this.switchStates.size === 0)
+            || [...this.switchStates.values()].some(v => v)
+            || (this.weatherProvider && await this.weatherProvider.isSunny()));
 
         const contactService = accessory.getService(Service.ContactSensor);
         if (contactService) {
@@ -257,23 +296,17 @@ class SolarSensorPlatform {
           );
         }
 
-        // lastState is undefined on first poll, so info is always used initially.
         const changed = accessory.context.lastState !== state;
         accessory.context.lastState = state;
-        const log = changed ? this.log.info : this.log.debug;
-        log.call(this.log,
-          `[${cfg.name}] az ${azimuth.toFixed(2)} [${cfg.azimuthMin}–${cfg.azimuthMax}]: ${azimuthInRange}, `
-          + `alt ${altitude.toFixed(2)} [${cfg.altitudeMin}–${cfg.altitudeMax}]: ${altitudeInRange}, `
-          + `sunny: ${isSunny} → ${state ? 'OPEN' : 'CLOSED'}`,
-        );
+        anyChanged = anyChanged || changed;
       }
 
-      if (Date.now() - this.lastPositionLogTime >= 10 * 60 * 1000) {
+      if (anyChanged || Date.now() - this.lastPositionLogTime >= 10 * 60 * 1000) {
         const states = [...this.accessories.values()]
           .filter(a => a.context.sensorConfig)
           .map(a => `${a.context.sensorConfig.name}: ${a.context.lastState ? 'OPEN' : 'CLOSED'}`)
           .join(', ');
-        this.log.info(`Sun position: az ${azimuth.toFixed(2)}, alt ${altitude.toFixed(2)} — ${states}`);
+        this.log.info(`az ${azimuth.toFixed(2)}, alt ${altitude.toFixed(2)} — ${states}`);
         this.lastPositionLogTime = Date.now();
       }
     } finally {

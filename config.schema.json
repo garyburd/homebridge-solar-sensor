@@ -62,6 +62,25 @@
           }
         }
       },
+      "sunnySwitches": {
+        "type": "array",
+        "title": "Sunny Switches",
+        "required": false,
+        "default": [],
+        "description": "Optional switches that can be toggled by HomeKit automations (e.g. from a light sensor) to indicate sunny conditions. If any switch is On or the weather provider reports sunny, sensors treat the sky as sunny.",
+        "items": {
+          "type": "object",
+          "title": "Switch",
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Switch Name",
+              "required": true,
+              "description": "The name shown in HomeKit. Must be unique."
+            }
+          }
+        }
+      },
       "sensors": {
         "type": "array",
         "title": "Sensors",

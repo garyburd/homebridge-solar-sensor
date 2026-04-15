@@ -6,7 +6,9 @@ The contact sensor **opens** (CONTACT_NOT_DETECTED) when all of the following ar
 
 1. The sun's **azimuth** is within the sensor's configured range.
 2. The sun's **altitude** is within the sensor's configured range.
-3. The configured **weather provider** reports sunny conditions *(only checked when a weather provider is configured)*.
+3. At least one **sunny source** reports sunny conditions *(only checked when a weather provider or sunny switches are configured)*.
+
+A sunny source is either a configured **weather provider** (OpenWeatherMap cloud cover or UV index) or a **sunny switch** — a HomeKit switch that can be toggled by automations (e.g. from a light sensor detecting bright light). If any sunny source reports sunny, the condition is met.
 
 This lets you build HomeKit automations that trigger based on where the sun actually is and whether it is shining — for example, closing blinds only when the sun is hitting a particular window on a clear day.
 
@@ -65,6 +67,9 @@ Add a `SolarSensor` platform block to your Homebridge `config.json`:
         "apiKey": "YOUR_OWM_API_KEY",
         "threshold": 3
       },
+      "sunnySwitches": [
+        { "name": "Front Yard Light Sensor" }
+      ],
       "sensors": [
         {
           "name": "Sun in West Window",
@@ -97,7 +102,8 @@ If you use Homebridge UI (config-ui-x), the plugin provides a full schema so you
 | `latitude` | number | yes | — | Location latitude (−90 to 90) |
 | `longitude` | number | yes | — | Location longitude (−180 to 180) |
 | `pollInterval` | integer | no | `60` | Seconds between sun-position recalculations. |
-| `weatherProvider` | object | no | — | Weather provider configuration (see below). When omitted, sensors fire on sun position alone. |
+| `weatherProvider` | object | no | — | Weather provider configuration (see below). |
+| `sunnySwitches` | array | no | `[]` | Sunny switch configurations (see below). |
 
 ### Weather Provider Fields
 
@@ -106,6 +112,14 @@ If you use Homebridge UI (config-ui-x), the plugin provides a full schema so you
 | `provider` | string | yes | `"owmCloudCover"` | `"owmCloudCover"` (OpenWeatherMap current weather API) or `"owmUVIndex"` (OpenWeatherMap One Call API 3.0). |
 | `apiKey` | string | yes | — | Your OpenWeatherMap API key. |
 | `threshold` | number | no | varies | For `owmCloudCover`: max cloud cover percentage (0–100, default 50). For `owmUVIndex`: minimum UV index to count as sunny (0–20, default 3). |
+
+### Sunny Switch Fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` | string | `"Sunny Switch"` | Name shown in HomeKit. Must be unique. |
+
+When no weather provider and no sunny switches are configured, sensors fire on sun position alone. When either is configured, at least one must report sunny for sensors to open.
 
 ### Sensor Fields
 
@@ -138,11 +152,13 @@ When a `weatherProvider` is configured, the plugin fetches weather data every **
 - **`owmCloudCover`** — Uses the [OpenWeatherMap Current Weather API](https://openweathermap.org/current). Sunny when cloud cover percentage is at or below the threshold.
 - **`owmUVIndex`** — Uses the [OpenWeatherMap One Call API 3.0](https://openweathermap.org/api/one-call-3). Sunny when UV index is at or above the threshold. This is a more direct measure of whether the sun is actually bright, since thin high clouds can report high cloud cover while still allowing strong sunlight. Requires a One Call API 3.0 subscription (free for 1000 calls/day).
 
+When `sunnySwitches` are configured, the plugin exposes HomeKit switches that can be toggled by automations. For example, you can use a HomeKit automation to turn a sunny switch on when a light sensor detects bright light. When a switch is toggled, sensor states are updated immediately.
+
 A sensor's contact state is determined by:
 
-| Sun in azimuth/altitude window? | Weather provider says sunny? | Contact state |
+| Sun in azimuth/altitude window? | Any sunny source says sunny? | Contact state |
 |---|---|---|
-| Yes | Yes (or no provider configured) | **Open** (CONTACT_NOT_DETECTED) |
+| Yes | Yes (or no sources configured) | **Open** (CONTACT_NOT_DETECTED) |
 | Yes | No | Closed |
 | No | — | Closed |
 
@@ -164,19 +180,12 @@ The free tier allows up to 1,000 API calls per day. Weather is only fetched when
 - **Close motorised blinds** when the sun hits a specific window *and* the sky is clear.
 - **Turn on a fan** when afternoon sun heats a west-facing room on sunny days.
 - **Enable "golden hour" lighting scenes** by targeting low altitudes near sunset azimuth.
-- **Skip automations on overcast days** by configuring a weather provider with a low threshold.
 
 ---
 
 ## Troubleshooting
 
-Sensor state changes are logged at info level. Sun position is logged at info level every 10 minutes. For full debug output on every poll:
-
-```bash
-homebridge -D
-```
-
-or set `"debug": true` in your Homebridge UI settings.
+Sensor settings are logged on startup. A summary of all sensor states (with sun position) is logged whenever any sensor changes state, and at least every 10 minutes.
 
 ---
 
