@@ -3,11 +3,26 @@ const SunCalc = require('suncalc');
 const PLUGIN_NAME = 'homebridge-solar-sensor';
 const PLATFORM_NAME = 'SolarSensor';
 
-const DEFAULT_POLL_INTERVAL = 60;          // sun-position poll (seconds)
+const POLL_INTERVAL = 60 * 1000; // sun-position poll (ms)
+const STATUS_LOG_INTERVAL = 10 * 60 * 1000; // status log cadence (ms)
+const WEATHER_POLL_INTERVAL = 10 * 60 * 1000; // weather API poll (ms) — 144 polls/day
 
 function clamp(val, min, max, def) {
-  if (val == null || typeof val !== 'number' || isNaN(val)) return def;
-  return Math.min(Math.max(val, min), max);
+  // Accept finite numbers directly, and strings that look like a number
+  // a user would actually type (optional sign, digits, optional decimal
+  // point). Reject anything else — including null, undefined, booleans,
+  // objects, empty or whitespace-only strings, hex/octal/binary
+  // literals, "1e3", "Infinity", "NaN", and non-finite numbers.
+  let num;
+  if (typeof val === 'number' && Number.isFinite(val)) {
+    num = val;
+  } else if (typeof val === 'string' && /^\s*-?\d+(\.\d+)?\s*$/.test(val)) {
+    num = Number(val);
+  } else {
+    return def;
+  }
+
+  return Math.min(Math.max(num, min), max);
 }
 
 function isInRange(value, min, max) {
@@ -57,7 +72,7 @@ class WeatherProvider {
 // ------------------------------------------------------------------
 class OpenWeatherMapProvider extends WeatherProvider {
   constructor(platform, apiKey, threshold) {
-    super('OWM Cloud Cover', platform, 10 * 60 * 1000);
+    super('OWM Cloud Cover', platform, WEATHER_POLL_INTERVAL);
     this.apiKey = apiKey;
     this.threshold = clamp(threshold, 0, 100, 50);
   }
@@ -71,7 +86,7 @@ class OpenWeatherMapProvider extends WeatherProvider {
     const data = await this.fetchJSON(url);
 
     const value = data.clouds?.all;
-    if (typeof value !== 'number' || isNaN(value)) {
+    if (typeof value !== 'number') {
       throw new Error('response missing numeric cloud cover');
     }
     const sunny = value <= this.threshold;
@@ -85,7 +100,7 @@ class OpenWeatherMapProvider extends WeatherProvider {
 // ------------------------------------------------------------------
 class OpenWeatherMapUVProvider extends WeatherProvider {
   constructor(platform, apiKey, threshold) {
-    super('OWM UV Index', platform, 10 * 60 * 1000);
+    super('OWM UV Index', platform, WEATHER_POLL_INTERVAL);
     this.apiKey = apiKey;
     this.threshold = clamp(threshold, 0, 20, 3);
   }
@@ -100,7 +115,7 @@ class OpenWeatherMapUVProvider extends WeatherProvider {
     const data = await this.fetchJSON(url);
 
     const value = data.current?.uvi;
-    if (typeof value !== 'number' || isNaN(value)) {
+    if (typeof value !== 'number') {
       throw new Error('response missing numeric UV index');
     }
     const sunny = value >= this.threshold;
@@ -109,10 +124,6 @@ class OpenWeatherMapUVProvider extends WeatherProvider {
   }
 }
 
-module.exports = (api) => {
-  api.registerPlatform(PLATFORM_NAME, SolarSensorPlatform);
-};
-
 class SolarSensorPlatform {
   constructor(log, config, api) {
     this.log = log;
@@ -120,7 +131,6 @@ class SolarSensorPlatform {
     this.api = api;
     this.latitude = this.config.latitude;
     this.longitude = this.config.longitude;
-    this.pollInterval = (this.config.pollInterval || DEFAULT_POLL_INTERVAL) * 1000;
 
     this.accessories = new Map();
     this.switchStates = new Map();
@@ -154,7 +164,7 @@ class SolarSensorPlatform {
       this.log.info('Finished launching, configuring sensors…');
       this.configureSensors();
       await this.updateAll();
-      this.updateTimer = setInterval(() => this.updateAll(), this.pollInterval);
+      this.updateTimer = setInterval(() => this.updateAll(), POLL_INTERVAL);
     });
   }
 
@@ -163,26 +173,37 @@ class SolarSensorPlatform {
     this.accessories.set(accessory.UUID, accessory);
   }
 
-  // ------------------------------------------------------------------
-  // Sensor setup
-  // ------------------------------------------------------------------
+  getOrCreateAccessory(key, name, model, validUUIDs) {
+    const { Service, Characteristic } = this.api.hap;
+    const uuid = this.api.hap.uuid.generate(key);
+    validUUIDs.add(uuid);
+
+    let accessory = this.accessories.get(uuid);
+    if (!accessory) {
+      this.log.info('Adding new accessory:', name);
+      accessory = new this.api.platformAccessory(name, uuid);
+      this.accessories.set(uuid, accessory);
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+    }
+
+    const infoService = accessory.getService(Service.AccessoryInformation);
+    if (infoService) {
+      infoService
+        .setCharacteristic(Characteristic.Manufacturer, 'homebridge-solar-sensor')
+        .setCharacteristic(Characteristic.Model, model)
+        .setCharacteristic(Characteristic.SerialNumber, uuid.slice(0, 12));
+    }
+
+    return accessory;
+  }
+
   configureSensors() {
     const { Service, Characteristic } = this.api.hap;
     const validUUIDs = new Set();
 
     for (const sensorInput of (this.config.sensors || [])) {
       const name = sensorInput.name || 'Solar Sensor';
-      const uuid = this.api.hap.uuid.generate(`${PLUGIN_NAME}.${name}`);
-      validUUIDs.add(uuid);
-
-      let accessory = this.accessories.get(uuid);
-
-      if (!accessory) {
-        this.log.info('Adding new accessory:', name);
-        accessory = new this.api.platformAccessory(name, uuid);
-        this.accessories.set(uuid, accessory);
-        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-      }
+      const accessory = this.getOrCreateAccessory(`${PLUGIN_NAME}.${name}`, name, 'Solar Sensor', validUUIDs);
 
       const cfg = {
         name,
@@ -199,30 +220,11 @@ class SolarSensorPlatform {
         contactService = accessory.addService(Service.ContactSensor, name);
       }
       contactService.setCharacteristic(Characteristic.Name, name);
-
-      const infoService = accessory.getService(Service.AccessoryInformation);
-      if (infoService) {
-        infoService
-          .setCharacteristic(Characteristic.Manufacturer, 'homebridge-solar-sensor')
-          .setCharacteristic(Characteristic.Model, 'Solar Sensor')
-          .setCharacteristic(Characteristic.SerialNumber, uuid.slice(0, 12));
-      }
     }
 
     for (const switchInput of (this.config.sunnySwitches || [])) {
       const name = switchInput.name || 'Sunny Switch';
-      const uuid = this.api.hap.uuid.generate(`${PLUGIN_NAME}.switch.${name}`);
-      validUUIDs.add(uuid);
-
-      let accessory = this.accessories.get(uuid);
-
-      if (!accessory) {
-        this.log.info('Adding new sunny switch:', name);
-        accessory = new this.api.platformAccessory(name, uuid);
-        this.accessories.set(uuid, accessory);
-        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-      }
-
+      const accessory = this.getOrCreateAccessory(`${PLUGIN_NAME}.switch.${name}`, name, 'Sunny Switch', validUUIDs);
       accessory.context.switchConfig = { name };
 
       let switchService = accessory.getService(Service.Switch);
@@ -231,26 +233,19 @@ class SolarSensorPlatform {
       }
       switchService.setCharacteristic(Characteristic.Name, name);
 
+      const uuid = accessory.UUID;
       const on = !!switchService.getCharacteristic(Characteristic.On).value;
       this.switchStates.set(uuid, on);
       this.log.info(`[${name}] switch: ${on ? 'ON' : 'OFF'}`);
 
       switchService.getCharacteristic(Characteristic.On)
-        .onGet(() => this.switchStates.get(uuid) || false)
+        .onGet(() => this.switchStates.get(uuid))
         .onSet((value) => {
           const on = !!value;
           this.switchStates.set(uuid, on);
           this.log.info(`[${name}] switch → ${on ? 'ON' : 'OFF'}`);
           this.updateAll();
         });
-
-      const infoService = accessory.getService(Service.AccessoryInformation);
-      if (infoService) {
-        infoService
-          .setCharacteristic(Characteristic.Manufacturer, 'homebridge-solar-sensor')
-          .setCharacteristic(Characteristic.Model, 'Sunny Switch')
-          .setCharacteristic(Characteristic.SerialNumber, uuid.slice(0, 12));
-      }
     }
 
     for (const [uuid, accessory] of this.accessories) {
@@ -262,9 +257,32 @@ class SolarSensorPlatform {
     }
   }
 
-  // ------------------------------------------------------------------
-  // Sensor evaluation
-  // ------------------------------------------------------------------
+  // Decide whether current conditions allow sensors to report sun.
+  // Returns false if the sun is below the horizon. Otherwise, if any
+  // configured source (switch or weather provider) reports sunny,
+  // returns true. If no sources are configured, defaults to true.
+  async conditionsAllowSun(altitude) {
+    // Sun below horizon → not sunny. Short-circuit to minimize calls to
+    // the weather provider.
+    if (altitude <= 0) return false;
+
+    // No gates configured → default to sunny.
+    const hasSwitches = this.switchStates.size > 0;
+    const hasWeatherProvider = this.weatherProvider != null;
+    if (!hasSwitches && !hasWeatherProvider) return true;
+
+    // Any switch flipped on counts as sunny.
+    const anySwitchOn = hasSwitches
+      && [...this.switchStates.values()].some(v => v);
+
+    // Weather provider is polled even if a switch already voted yes, so
+    // its log output is available for debugging.
+    const weatherSunny = hasWeatherProvider
+      && await this.weatherProvider.isSunny();
+
+    return anySwitchOn || weatherSunny;
+  }
+
   async updateAll() {
     if (this.updating) return;
     this.updating = true;
@@ -275,13 +293,10 @@ class SolarSensorPlatform {
 
       const azimuth = ((pos.azimuth * 180) / Math.PI + 180) % 360;
       const altitude = (pos.altitude * 180) / Math.PI;
+      const isSunny = await this.conditionsAllowSun(altitude);
 
-      const isSunny = altitude > 0
-        && ((!this.weatherProvider && this.switchStates.size === 0)
-          || [...this.switchStates.values()].some(v => v)
-          || (this.weatherProvider && await this.weatherProvider.isSunny()));
-
-      let logStatus = Date.now() - this.lastPositionLogTime >= 10 * 60 * 1000;
+      // Log every STATUS_LOG_INTERVAL or on state change.
+      let logStatus = Date.now() - this.lastPositionLogTime >= STATUS_LOG_INTERVAL;
 
       for (const [, accessory] of this.accessories) {
         const cfg = accessory.context.sensorConfig;
@@ -316,5 +331,8 @@ class SolarSensorPlatform {
       this.updating = false;
     }
   }
-
 }
+
+module.exports = (api) => {
+  api.registerPlatform(PLATFORM_NAME, SolarSensorPlatform);
+};

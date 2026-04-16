@@ -61,7 +61,6 @@ Add a `SolarSensor` platform block to your Homebridge `config.json`:
       "name": "Solar Sensor",
       "latitude": 47.978,
       "longitude": -122.202,
-      "pollInterval": 60,
       "weatherProvider": {
         "provider": "owmUVIndex",
         "apiKey": "YOUR_OWM_API_KEY",
@@ -101,7 +100,6 @@ If you use Homebridge UI (config-ui-x), the plugin provides a full schema so you
 | `name` | string | yes | — | Display name for the platform |
 | `latitude` | number | yes | — | Location latitude (−90 to 90) |
 | `longitude` | number | yes | — | Location longitude (−180 to 180) |
-| `pollInterval` | integer | no | `60` | Seconds between sun-position recalculations. |
 | `weatherProvider` | object | no | — | Weather provider configuration (see below). |
 | `sunnySwitches` | array | no | `[]` | Sunny switch configurations (see below). |
 
@@ -123,13 +121,13 @@ When no weather provider and no sunny switches are configured, sensors fire on s
 
 ### Sensor Fields
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `name` | string | `"Solar Sensor"` | Name shown in HomeKit |
-| `azimuthMin` | number | `0` | Start of azimuth window (°) |
-| `azimuthMax` | number | `360` | End of azimuth window (°) |
-| `altitudeMin` | number | `0` | Minimum sun altitude (°) |
-| `altitudeMax` | number | `90` | Maximum sun altitude (°) |
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | — | Name shown in HomeKit |
+| `azimuthMin` | number | yes | — | Start of azimuth window (°) |
+| `azimuthMax` | number | yes | — | End of azimuth window (°) |
+| `altitudeMin` | number | no | `0` | Minimum sun altitude (°) |
+| `altitudeMax` | number | no | `90` | Maximum sun altitude (°) |
 
 ---
 
@@ -145,9 +143,9 @@ When no weather provider and no sunny switches are configured, sensors fire on s
 
 ## How It Works
 
-The plugin uses [suncalc](https://github.com/mourner/suncalc) to compute the sun's position based on your latitude, longitude, and the current time. Every `pollInterval` seconds it recalculates the sun position and updates each sensor.
+The plugin uses [suncalc](https://github.com/mourner/suncalc) to compute the sun's position based on your latitude, longitude, and the current time. Every minute it recalculates the sun position and updates each sensor.
 
-When a `weatherProvider` is configured, the plugin fetches weather data every **10 minutes** from OpenWeatherMap. Weather is only fetched when the sun is in at least one sensor's window, to reduce API calls. Two providers are available:
+When a `weatherProvider` is configured, the plugin fetches weather data every **10 minutes** from OpenWeatherMap. Weather is only fetched when the sun is above the horizon, to reduce API calls. Two providers are available:
 
 - **`owmCloudCover`** — Uses the [OpenWeatherMap Current Weather API](https://openweathermap.org/current). Sunny when cloud cover percentage is at or below the threshold.
 - **`owmUVIndex`** — Uses the [OpenWeatherMap One Call API 3.0](https://openweathermap.org/api/one-call-3). Sunny when UV index is at or above the threshold. This is a more direct measure of whether the sun is actually bright, since thin high clouds can report high cloud cover while still allowing strong sunlight. Requires a One Call API 3.0 subscription (free for 1000 calls/day).
@@ -169,9 +167,9 @@ A sensor's contact state is determined by:
 1. Create a free account at [openweathermap.org](https://openweathermap.org).
 2. Navigate to **API keys** in your account dashboard.
 3. Copy your key and paste it into the `weatherProvider.apiKey` field.
-4. For the `uvIndex` provider, subscribe to the [One Call API 3.0](https://openweathermap.org/api/one-call-3) (free for 1000 calls/day).
+4. For the `owmUVIndex` provider, subscribe to the [One Call API 3.0](https://openweathermap.org/api/one-call-3) (free for 1000 calls/day).
 
-The free tier allows up to 1,000 API calls per day. Weather is only fetched when the sun is in a sensor's window, so actual usage is well below the limit.
+The free tier allows up to 1,000 API calls per day. Weather is only fetched when the sun is above the horizon, so actual usage is well below the limit.
 
 ---
 

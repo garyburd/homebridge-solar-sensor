@@ -25,13 +25,6 @@
         "required": true,
         "description": "Your location's longitude (e.g. -122.202)"
       },
-      "pollInterval": {
-        "type": "number",
-        "title": "Solar Sensor Poll Interval (seconds)",
-        "default": 60,
-        "required": false,
-        "description": "How often to recalculate the sun position (in seconds)."
-      },
       "weatherProvider": {
         "type": "object",
         "title": "Weather Provider",
@@ -101,7 +94,6 @@
               "type": "number",
               "title": "Azimuth Min (°)",
               "required": true,
-              "default": 0,
               "minimum": 0,
               "maximum": 360,
               "description": "Start of the azimuth window (degrees from north, clockwise)."
@@ -110,7 +102,6 @@
               "type": "number",
               "title": "Azimuth Max (°)",
               "required": true,
-              "default": 360,
               "minimum": 0,
               "maximum": 360,
               "description": "End of the azimuth window. If min > max the range wraps through north (0°)."
@@ -118,7 +109,6 @@
             "altitudeMin": {
               "type": "number",
               "title": "Altitude Min (°)",
-              "required": true,
               "default": 0,
               "minimum": -90,
               "maximum": 90,
@@ -127,7 +117,6 @@
             "altitudeMax": {
               "type": "number",
               "title": "Altitude Max (°)",
-              "required": true,
               "default": 90,
               "minimum": -90,
               "maximum": 90,
