@@ -8,7 +8,7 @@ The contact sensor **opens** (CONTACT_NOT_DETECTED) when all of the following ar
 2. The sun's **altitude** is within the sensor's configured range.
 3. At least one **sunny source** reports sunny conditions *(only checked when a weather provider or sunny switches are configured)*.
 
-A sunny source is either a configured **weather provider** (OpenWeatherMap cloud cover or UV index) or a **sunny switch** — a HomeKit switch that can be toggled by automations (e.g. from a light sensor detecting bright light). If any sunny source reports sunny, the condition is met.
+A sunny source is either a configured **weather provider** (OpenWeatherMap cloud cover, or One Call combining UV index and cloud cover) or a **sunny switch** — a HomeKit switch that can be toggled by automations (e.g. from a light sensor detecting bright light). If any sunny source reports sunny, the condition is met.
 
 This lets you build HomeKit automations that trigger based on where the sun actually is and whether it is shining — for example, closing blinds only when the sun is hitting a particular window on a clear day.
 
@@ -62,9 +62,10 @@ Add a `SolarSensor` platform block to your Homebridge `config.json`:
       "latitude": 47.978,
       "longitude": -122.202,
       "weatherProvider": {
-        "provider": "owmUVIndex",
+        "provider": "owmOneCall",
         "apiKey": "YOUR_OWM_API_KEY",
-        "threshold": 3
+        "uvThreshold": 3,
+        "cloudThreshold": 50
       },
       "sunnySwitches": [
         { "name": "Front Yard Light Sensor" }
@@ -107,9 +108,11 @@ If you use Homebridge UI (config-ui-x), the plugin provides a full schema so you
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `provider` | string | yes | `"owmCloudCover"` | `"owmCloudCover"` (OpenWeatherMap current weather API) or `"owmUVIndex"` (OpenWeatherMap One Call API 3.0). |
+| `provider` | string | yes | `"owmCloudCover"` | `"owmCloudCover"` (OpenWeatherMap current weather API) or `"owmOneCall"` (OpenWeatherMap One Call API 3.0, combining UV and cloud cover). |
 | `apiKey` | string | yes | — | Your OpenWeatherMap API key. |
-| `threshold` | number | no | varies | For `owmCloudCover`: max cloud cover percentage (0–100, default 50). For `owmUVIndex`: minimum UV index to count as sunny (0–20, default 3). |
+| `threshold` | number | no | `50` | `owmCloudCover` only: max cloud cover percentage to count as sunny (0–100). |
+| `uvThreshold` | number | no | `3` | `owmOneCall` only: minimum UV index to count as sunny (0–20). |
+| `cloudThreshold` | number | no | `50` | `owmOneCall` only: max cloud cover percentage to count as sunny (0–100). |
 
 ### Sunny Switch Fields
 
@@ -137,7 +140,7 @@ When no weather provider and no sunny switches are configured, sensors fire on s
 - **Altitude** is degrees above the horizon. 0° = horizon, 90° = directly overhead. Negative values mean the sun is below the horizon.
 - **Wrap-around azimuth**: If `azimuthMin` > `azimuthMax`, the range wraps through north (0°). For example, `azimuthMin: 350, azimuthMax: 10` matches azimuths from 350° through 0° to 10°.
 - **Cloud cover** (provider `"owmCloudCover"`) is a percentage from 0 (clear sky) to 100 (fully overcast). The sensor is sunny when cloud cover is at or below the threshold.
-- **UV index** (provider `"owmUVIndex"`) measures solar radiation reaching the ground. The sensor is sunny when the UV index is at or above the threshold.
+- **One Call** (provider `"owmOneCall"`) combines UV index and cloud cover. The sensor is sunny when the UV index is at or above `uvThreshold` **or** cloud cover is at or below `cloudThreshold`.
 
 ---
 
@@ -147,8 +150,8 @@ The plugin uses [suncalc](https://github.com/mourner/suncalc) to compute the sun
 
 When a `weatherProvider` is configured, the plugin fetches weather data every **10 minutes** from OpenWeatherMap. Weather is only fetched when the sun is above the horizon, to reduce API calls. Two providers are available:
 
-- **`owmCloudCover`** — Uses the [OpenWeatherMap Current Weather API](https://openweathermap.org/current). Sunny when cloud cover percentage is at or below the threshold.
-- **`owmUVIndex`** — Uses the [OpenWeatherMap One Call API 3.0](https://openweathermap.org/api/one-call-3). Sunny when UV index is at or above the threshold. This is a more direct measure of whether the sun is actually bright, since thin high clouds can report high cloud cover while still allowing strong sunlight. Requires a One Call API 3.0 subscription (free for 1000 calls/day).
+- **`owmCloudCover`** — Uses the [OpenWeatherMap Current Weather API](https://openweathermap.org/current). Sunny when cloud cover percentage is at or below `threshold`.
+- **`owmOneCall`** — Uses the [OpenWeatherMap One Call API 3.0](https://openweathermap.org/api/one-call-3). Sunny when UV index is at or above `uvThreshold` **or** cloud cover is at or below `cloudThreshold`. Either signal alone is enough: a high UV reading means the sun is bright even if reported cloud cover is high (thin clouds still let UV through), and low cloud cover means clear sky even if UV is low (e.g. early or late in the day). Requires a One Call API 3.0 subscription (free for 1000 calls/day).
 
 When `sunnySwitches` are configured, the plugin exposes HomeKit switches that can be toggled by automations. For example, you can use a HomeKit automation to turn a sunny switch on when a light sensor detects bright light. When a switch is toggled, sensor states are updated immediately.
 
@@ -167,7 +170,7 @@ A sensor's contact state is determined by:
 1. Create a free account at [openweathermap.org](https://openweathermap.org).
 2. Navigate to **API keys** in your account dashboard.
 3. Copy your key and paste it into the `weatherProvider.apiKey` field.
-4. For the `owmUVIndex` provider, subscribe to the [One Call API 3.0](https://openweathermap.org/api/one-call-3) (free for 1000 calls/day).
+4. For the `owmOneCall` provider, subscribe to the [One Call API 3.0](https://openweathermap.org/api/one-call-3) (free for 1000 calls/day).
 
 The free tier allows up to 1,000 API calls per day. Weather is only fetched when the sun is above the horizon, so actual usage is well below the limit.
 

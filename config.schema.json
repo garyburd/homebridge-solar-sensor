@@ -3,7 +3,7 @@
   "pluginType": "platform",
   "singular": true,
   "headerDisplay": "Exposes contact sensors that close when the sun's azimuth and altitude fall within configured ranges and (optionally) a weather provider reports sunny conditions.",
-  "footerDisplay": "Azimuth is measured in degrees from north (0° = north, 90° = east, 180° = south, 270° = west). Altitude is degrees above the horizon (0° = horizon, 90° = zenith). Negative altitudes mean the sun is below the horizon. Get a free OpenWeatherMap API key at https://openweathermap.org/appid. The UV Index provider requires a One Call API 3.0 subscription (free for 1000 calls/day).",
+  "footerDisplay": "Azimuth is measured in degrees from north (0° = north, 90° = east, 180° = south, 270° = west). Altitude is degrees above the horizon (0° = horizon, 90° = zenith). Negative altitudes mean the sun is below the horizon. Get a free OpenWeatherMap API key at https://openweathermap.org/appid. The One Call provider requires a One Call API 3.0 subscription (free for 1000 calls/day).",
   "schema": {
     "type": "object",
     "properties": {
@@ -38,7 +38,7 @@
             "default": "owmCloudCover",
             "oneOf": [
               { "title": "Cloud Cover (OpenWeatherMap current weather)", "enum": ["owmCloudCover"] },
-              { "title": "UV Index (OpenWeatherMap One Call 3.0)", "enum": ["owmUVIndex"] }
+              { "title": "One Call (OpenWeatherMap One Call 3.0: UV + clouds)", "enum": ["owmOneCall"] }
             ],
             "description": "Which weather metric to use for determining sunny/cloudy."
           },
@@ -46,12 +46,22 @@
             "type": "string",
             "title": "OpenWeatherMap API Key",
             "required": true,
-            "description": "Get a free key at openweathermap.org. The UV Index provider requires a One Call API 3.0 subscription."
+            "description": "Get a free key at openweathermap.org. The One Call provider requires a One Call API 3.0 subscription."
           },
           "threshold": {
             "type": "number",
-            "title": "Threshold",
-            "description": "For owmCloudCover: max cloud cover percentage (0–100, default 50). For owmUVIndex: minimum UV index to count as sunny (0–20, default 3)."
+            "title": "Cloud Cover Threshold (%)",
+            "description": "owmCloudCover only: max cloud cover percentage to count as sunny (0–100, default 50)."
+          },
+          "uvThreshold": {
+            "type": "number",
+            "title": "UV Index Threshold",
+            "description": "owmOneCall only: minimum UV index to count as sunny (0–20, default 3)."
+          },
+          "cloudThreshold": {
+            "type": "number",
+            "title": "Cloud Cover Threshold (%)",
+            "description": "owmOneCall only: max cloud cover percentage to count as sunny (0–100, default 50)."
           }
         }
       },

@@ -71,10 +71,10 @@ class WeatherProvider {
 // Cloud-cover provider – OpenWeatherMap current weather API
 // ------------------------------------------------------------------
 class OpenWeatherMapProvider extends WeatherProvider {
-  constructor(platform, apiKey, threshold) {
+  constructor(platform, wp) {
     super('OWM Cloud Cover', platform, WEATHER_POLL_INTERVAL);
-    this.apiKey = apiKey;
-    this.threshold = clamp(threshold, 0, 100, 50);
+    this.apiKey = wp.apiKey;
+    this.threshold = clamp(wp.threshold, 0, 100, 50);
   }
 
   async _fetch() {
@@ -96,13 +96,14 @@ class OpenWeatherMapProvider extends WeatherProvider {
 }
 
 // ------------------------------------------------------------------
-// UV-index provider – OpenWeatherMap One Call API 3.0
+// One Call provider – OpenWeatherMap One Call API 3.0 (UV + clouds)
 // ------------------------------------------------------------------
-class OpenWeatherMapUVProvider extends WeatherProvider {
-  constructor(platform, apiKey, threshold) {
-    super('OWM UV Index', platform, WEATHER_POLL_INTERVAL);
-    this.apiKey = apiKey;
-    this.threshold = clamp(threshold, 0, 20, 3);
+class OpenWeatherMapOneCallProvider extends WeatherProvider {
+  constructor(platform, wp) {
+    super('OWM One Call', platform, WEATHER_POLL_INTERVAL);
+    this.apiKey = wp.apiKey;
+    this.uvThreshold = clamp(wp.uvThreshold, 0, 20, 3);
+    this.cloudThreshold = clamp(wp.cloudThreshold, 0, 100, 50);
   }
 
   async _fetch() {
@@ -114,12 +115,13 @@ class OpenWeatherMapUVProvider extends WeatherProvider {
 
     const data = await this.fetchJSON(url);
 
-    const value = data.current?.uvi;
-    if (typeof value !== 'number') {
-      throw new Error('response missing numeric UV index');
+    const uvi = data.current?.uvi;
+    const clouds = data.current?.clouds;
+    if (typeof uvi !== 'number' || typeof clouds !== 'number') {
+      throw new Error('response missing numeric UV index or cloud cover');
     }
-    const sunny = value >= this.threshold;
-    this.platform.log.info(`[${this.name}] UVI ${value} (threshold ${this.threshold}) → ${sunny ? 'sunny' : 'cloudy'}`);
+    const sunny = uvi >= this.uvThreshold || clouds <= this.cloudThreshold;
+    this.platform.log.info(`[${this.name}] UVI ${uvi} (≥${this.uvThreshold}), clouds ${clouds}% (≤${this.cloudThreshold}%) → ${sunny ? 'sunny' : 'cloudy'}`);
     return sunny;
   }
 }
@@ -147,7 +149,7 @@ class SolarSensorPlatform {
     if (wp) {
       const providers = {
         owmCloudCover: OpenWeatherMapProvider,
-        owmUVIndex: OpenWeatherMapUVProvider,
+        owmOneCall: OpenWeatherMapOneCallProvider,
       };
       const Provider = providers[wp.provider || 'owmCloudCover'];
       if (!wp.apiKey) {
@@ -155,8 +157,8 @@ class SolarSensorPlatform {
       } else if (!Provider) {
         this.log.error(`Unknown weather provider: ${wp.provider}`);
       } else {
-        this.weatherProvider = new Provider(this, wp.apiKey, wp.threshold);
-        this.log.info(`Weather provider: ${this.weatherProvider.name} (threshold ${this.weatherProvider.threshold}).`);
+        this.weatherProvider = new Provider(this, wp);
+        this.log.info(`Weather provider: ${this.weatherProvider.name}.`);
       }
     }
 
