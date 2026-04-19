@@ -258,15 +258,10 @@ class SolarSensorPlatform {
   }
 
   // Decide whether current conditions allow sensors to report sun.
-  // Returns false if the sun is below the horizon. Otherwise, if any
-  // configured source (switch or weather provider) reports sunny,
-  // returns true. If no sources are configured, defaults to true.
-  async conditionsAllowSun(altitude) {
-    // Sun below horizon → not sunny. Short-circuit to minimize calls to
-    // the weather provider.
-    if (altitude <= 0) return false;
-
-    // No gates configured → default to sunny.
+  // If any configured source (switch or weather provider) reports
+  // sunny, returns true. If no sources are configured, defaults to
+  // true.
+  async conditionsAllowSun() {
     const hasSwitches = this.switchStates.size > 0;
     const hasWeatherProvider = this.weatherProvider != null;
     if (!hasSwitches && !hasWeatherProvider) return true;
@@ -293,7 +288,8 @@ class SolarSensorPlatform {
 
       const azimuth = ((pos.azimuth * 180) / Math.PI + 180) % 360;
       const altitude = (pos.altitude * 180) / Math.PI;
-      const isSunny = await this.conditionsAllowSun(altitude);
+
+      let isSunny;
 
       // Log every STATUS_LOG_INTERVAL or on state change.
       let logStatus = Date.now() - this.lastPositionLogTime >= STATUS_LOG_INTERVAL;
@@ -303,6 +299,8 @@ class SolarSensorPlatform {
         if (!cfg) continue;
         const contactService = accessory.getService(Service.ContactSensor);
         if (!contactService) continue;
+
+        if (isSunny === undefined) isSunny = await this.conditionsAllowSun();
 
         const state = isSunny
           && isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax)
@@ -320,11 +318,16 @@ class SolarSensorPlatform {
       }
 
       if (logStatus) {
-        const states = [...this.accessories.values()]
-          .filter(a => a.context.sensorConfig)
-          .map(a => `${a.context.sensorConfig.name}: ${a.context.lastState ? 'OPEN' : 'CLOSED'}`)
-          .join(', ');
-        this.log.info(`az: ${azimuth.toFixed(2)}, alt: ${altitude.toFixed(2)}, sunny: ${isSunny} — ${states}`);
+        const parts = [...this.accessories.values()].map((a) => {
+          if (a.context.sensorConfig) {
+            return `${a.context.sensorConfig.name}:${a.context.lastState ? 'O' : 'C'}`;
+          }
+          if (a.context.switchConfig) {
+            return `${a.context.switchConfig.name}:${this.switchStates.get(a.UUID) ? '1' : '0'}`;
+          }
+          return null;
+        }).filter(Boolean).join(', ');
+        this.log.info(`az: ${azimuth.toFixed(2)}, alt: ${altitude.toFixed(2)}, sunny: ${isSunny ?? 'unknown'} — ${parts}`);
         this.lastPositionLogTime = Date.now();
       }
     } finally {
