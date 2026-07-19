@@ -1,0 +1,125 @@
+{
+  "pluginAlias": "SolarSensor",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Exposes contact sensors that open when the sun's azimuth and altitude fall within configured ranges and (optionally) a weather provider reports sunny conditions.",
+  "footerDisplay": "Azimuth is measured in degrees from north (0° = north, 90° = east, 180° = south, 270° = west). Altitude is degrees above the horizon (0° = horizon, 90° = zenith). Negative altitudes mean the sun is below the horizon. Weather errors fall back to position-only operation. Get a free OpenWeatherMap API key at https://openweathermap.org/appid. The One Call provider requires a One Call API 3.0 subscription (free for 1000 calls/day).",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "title": "Platform Name",
+        "default": "Solar Sensor",
+        "required": true
+      },
+      "latitude": {
+        "type": "number",
+        "title": "Latitude",
+        "required": true,
+        "minimum": -90,
+        "maximum": 90,
+        "description": "Your location's latitude (e.g. 47.978)"
+      },
+      "longitude": {
+        "type": "number",
+        "title": "Longitude",
+        "required": true,
+        "minimum": -180,
+        "maximum": 180,
+        "description": "Your location's longitude (e.g. -122.202)"
+      },
+      "weatherProvider": {
+        "type": "object",
+        "title": "Weather Provider",
+        "required": false,
+        "description": "Optional. Gate sensors by sky conditions. Configuration and request errors fall back to position-only operation.",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider Type",
+            "required": true,
+            "default": "owmCloudCover",
+            "oneOf": [
+              { "title": "Cloud Cover (OpenWeatherMap current weather)", "enum": ["owmCloudCover"] },
+              { "title": "One Call (OpenWeatherMap One Call 3.0: UV + clouds)", "enum": ["owmOneCall"] }
+            ],
+            "description": "Which weather metric to use for determining sunny/cloudy."
+          },
+          "apiKey": {
+            "type": "string",
+            "title": "OpenWeatherMap API Key",
+            "required": true,
+            "description": "Get a free key at openweathermap.org. The One Call provider requires a One Call API 3.0 subscription."
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Cloud Cover Threshold (%)",
+            "description": "owmCloudCover only: max cloud cover percentage to count as sunny (0–100, default 50)."
+          },
+          "uvThreshold": {
+            "type": "number",
+            "title": "UV Index Threshold",
+            "description": "owmOneCall only: minimum UV index to count as sunny (0–20, default 3)."
+          },
+          "cloudThreshold": {
+            "type": "number",
+            "title": "Cloud Cover Threshold (%)",
+            "description": "owmOneCall only: max cloud cover percentage to count as sunny (0–100, default 50)."
+          }
+        }
+      },
+      "sensors": {
+        "type": "array",
+        "title": "Sensors",
+        "required": true,
+        "default": [],
+        "items": {
+          "type": "object",
+          "title": "Sensor",
+          "required": true,
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Sensor Name",
+              "required": true,
+              "description": "The name shown in HomeKit. Must be unique."
+            },
+            "azimuthMin": {
+              "type": "number",
+              "title": "Azimuth Min (°)",
+              "required": true,
+              "minimum": 0,
+              "maximum": 360,
+              "description": "Start of the azimuth window (degrees from north, clockwise)."
+            },
+            "azimuthMax": {
+              "type": "number",
+              "title": "Azimuth Max (°)",
+              "required": true,
+              "minimum": 0,
+              "maximum": 360,
+              "description": "End of the azimuth window. If min > max the range wraps through north (0°)."
+            },
+            "altitudeMin": {
+              "type": "number",
+              "title": "Altitude Min (°)",
+              "default": 0,
+              "minimum": -90,
+              "maximum": 90,
+              "description": "Minimum sun altitude (degrees above horizon)."
+            },
+            "altitudeMax": {
+              "type": "number",
+              "title": "Altitude Max (°)",
+              "default": 90,
+              "minimum": -90,
+              "maximum": 90,
+              "description": "Maximum sun altitude."
+            }
+          }
+        }
+      }
+    }
+  }
+}
