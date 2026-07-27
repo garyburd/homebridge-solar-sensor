@@ -229,9 +229,14 @@ class SolarSensorPlatform {
         azimuthMax: clamp(sensorInput.azimuthMax, 0, 360, 360),
         altitudeMin: clamp(sensorInput.altitudeMin, -90, 90, 0),
         altitudeMax: clamp(sensorInput.altitudeMax, -90, 90, 90),
+        ignoreWeather: sensorInput.ignoreWeather === true,
       };
       accessory.context.sensorConfig = cfg;
-      this.log.info(`[${name}] azimuth ${cfg.azimuthMin}–${cfg.azimuthMax}°, altitude ${cfg.altitudeMin}–${cfg.altitudeMax}°`);
+      this.log.info(
+        `[${name}] azimuth ${cfg.azimuthMin}–${cfg.azimuthMax}°, `
+        + `altitude ${cfg.altitudeMin}–${cfg.altitudeMax}°, `
+        + `weather ${cfg.ignoreWeather ? 'ignored' : 'used when configured'}`,
+      );
 
       let contactService = accessory.getService(Service.ContactSensor);
       if (!contactService) {
@@ -279,7 +284,8 @@ class SolarSensorPlatform {
 
         const state = isInRange(azimuth, cfg.azimuthMin, cfg.azimuthMax)
           && isInRange(altitude, cfg.altitudeMin, cfg.altitudeMax)
-          && (isSunny ??= this.weatherProvider == null || await this.weatherProvider.isSunny());
+          && (cfg.ignoreWeather
+            || (isSunny ??= this.weatherProvider == null || await this.weatherProvider.isSunny()));
 
         contactService.updateCharacteristic(
           Characteristic.ContactSensorState,

@@ -2,8 +2,8 @@
   "pluginAlias": "SolarSensor",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Exposes contact sensors that open when the sun's azimuth and altitude fall within configured ranges and (optionally) a weather provider reports sunny conditions.",
-  "footerDisplay": "Azimuth is measured in degrees from north (0° = north, 90° = east, 180° = south, 270° = west). Altitude is degrees above the horizon (0° = horizon, 90° = zenith). Negative altitudes mean the sun is below the horizon. Weather errors fall back to position-only operation. Get a free OpenWeatherMap API key at https://openweathermap.org/appid. The One Call provider requires a One Call API 3.0 subscription (free for 1000 calls/day).",
+  "headerDisplay": "Exposes contact sensors that open when the sun's azimuth and altitude fall within configured ranges and (optionally) a weather provider reports sunny conditions. Weather can be ignored for individual sensors.",
+  "footerDisplay": "Azimuth is measured in degrees from north (0° = north, 90° = east, 180° = south, 270° = west). Altitude is degrees above the horizon (0° = horizon, 90° = zenith). Negative altitudes mean the sun is below the horizon. Enable Ignore Weather on a sensor to make it depend only on sun position. Weather errors fall back to position-only operation. Get a free OpenWeatherMap API key at https://openweathermap.org/appid. The One Call provider requires a One Call API 3.0 subscription (free for 1000 calls/day).",
   "schema": {
     "type": "object",
     "properties": {
@@ -116,6 +116,12 @@
               "minimum": -90,
               "maximum": 90,
               "description": "Maximum sun altitude."
+            },
+            "ignoreWeather": {
+              "type": "boolean",
+              "title": "Ignore Weather",
+              "default": false,
+              "description": "When enabled, this sensor opens and closes using only its sun position ranges, even when a weather provider is configured."
             }
           }
         }

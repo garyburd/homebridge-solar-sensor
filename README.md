@@ -6,7 +6,7 @@ The contact sensor **opens** (`CONTACT_NOT_DETECTED`) when:
 
 1. The sun's **azimuth** is within the configured range.
 2. The sun's **altitude** is within the configured range.
-3. The configured **weather provider**, if any, reports sunny conditions.
+3. The configured **weather provider**, if any, reports sunny conditions—unless `ignoreWeather` is enabled for that sensor.
 
 Weather checks can use OpenWeatherMap cloud cover or One Call UV and cloud-cover data. This supports automations such as closing blinds only when clear-sky sunlight hits a specific window.
 
@@ -92,7 +92,8 @@ Add a `SolarSensor` platform block to your Homebridge `config.json`:
           "azimuthMin": 150,
           "azimuthMax": 210,
           "altitudeMin": 5,
-          "altitudeMax": 90
+          "altitudeMax": 90,
+          "ignoreWeather": true
         }
       ]
     }
@@ -133,6 +134,7 @@ Without a weather provider, sensors use sun position alone.
 | `azimuthMax` | number | yes | — | Azimuth window end (°) |
 | `altitudeMin` | number | no | `0` | Minimum altitude (°) |
 | `altitudeMax` | number | no | `90` | Maximum altitude (°) |
+| `ignoreWeather` | boolean | no | `false` | Use sun position only for this sensor, ignoring the configured weather provider |
 
 ---
 
@@ -150,7 +152,7 @@ Without a weather provider, sensors use sun position alone.
 
 The plugin uses [suncalc](https://github.com/mourner/suncalc) to calculate sun position from the configured coordinates and current time, updating every sensor once a minute.
 
-With a `weatherProvider`, the plugin fetches OpenWeatherMap data at most every **10 minutes**, only when the sun is within a sensor's position range. Two providers are available:
+With a `weatherProvider`, the plugin fetches OpenWeatherMap data at most every **10 minutes**, only when the sun is within the position range of a sensor that does not have `ignoreWeather` enabled. Two providers are available:
 
 - **`owmCloudCover`** — Uses the [Current Weather API](https://openweathermap.org/current). Cloud cover at or below `threshold` is sunny.
 - **`owmOneCall`** — Uses the [One Call API 3.0](https://openweathermap.org/api/one-call-3). UV at or above `uvThreshold`, or cloud cover at or below `cloudThreshold`, is sunny. Either signal suffices: strong UV can pass through thin clouds, while low cloud cover can indicate clear skies when UV is low near dawn or dusk. Requires a One Call 3.0 subscription (free for 1,000 calls/day).
@@ -159,11 +161,12 @@ Request failures count as sunny until the next eligible poll. A missing API key 
 
 Contact state follows this table:
 
-| Sun in position range? | Weather sunny? | State |
-|---|---|---|
-| Yes | Yes, unavailable, or none configured | **Open** (`CONTACT_NOT_DETECTED`) |
-| Yes | No | Closed |
-| No | — | Closed |
+| Sun in position range? | `ignoreWeather`? | Weather sunny? | State |
+|---|---|---|---|
+| Yes | Yes | — | **Open** (`CONTACT_NOT_DETECTED`) |
+| Yes | No | Yes, unavailable, or none configured | **Open** (`CONTACT_NOT_DETECTED`) |
+| Yes | No | No | Closed |
+| No | — | — | Closed |
 
 ---
 
