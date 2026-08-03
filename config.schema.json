@@ -89,6 +89,7 @@
               "type": "number",
               "title": "Azimuth Min (°)",
               "required": true,
+              "default": 0,
               "minimum": 0,
               "maximum": 360,
               "description": "Start of the azimuth window (degrees from north, clockwise)."
@@ -97,6 +98,7 @@
               "type": "number",
               "title": "Azimuth Max (°)",
               "required": true,
+              "default": 360,
               "minimum": 0,
               "maximum": 360,
               "description": "End of the azimuth window. If min > max the range wraps through north (0°)."
@@ -104,10 +106,10 @@
             "altitudeMin": {
               "type": "number",
               "title": "Altitude Min (°)",
-              "default": 0,
+              "default": -0.833,
               "minimum": -90,
               "maximum": 90,
-              "description": "Minimum sun altitude (degrees above horizon)."
+              "description": "Minimum sun altitude (degrees above horizon). Defaults to -0.833°, the conventional sunrise/sunset threshold."
             },
             "altitudeMax": {
               "type": "number",

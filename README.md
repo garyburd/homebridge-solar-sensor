@@ -130,9 +130,9 @@ Without a weather provider, sensors use sun position alone.
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `name` | string | yes | — | HomeKit name |
-| `azimuthMin` | number | yes | — | Azimuth window start (°) |
-| `azimuthMax` | number | yes | — | Azimuth window end (°) |
-| `altitudeMin` | number | no | `0` | Minimum altitude (°) |
+| `azimuthMin` | number | yes | `0` | Azimuth window start (°) |
+| `azimuthMax` | number | yes | `360` | Azimuth window end (°) |
+| `altitudeMin` | number | no | `-0.833` | Minimum altitude (°); the default matches the conventional sunrise/sunset threshold |
 | `altitudeMax` | number | no | `90` | Maximum altitude (°) |
 | `ignoreWeather` | boolean | no | `false` | Use sun position only for this sensor, ignoring the configured weather provider |
 
@@ -142,6 +142,7 @@ Without a weather provider, sensors use sun position alone.
 
 - **Azimuth** runs clockwise from north: 0° north, 90° east, 180° south, and 270° west.
 - **Altitude** measures degrees above the horizon: 0° at the horizon and 90° overhead. Negative values are below the horizon.
+- The default minimum altitude is **−0.833°**, the conventional threshold used for sunrise and sunset (accounting for atmospheric refraction and the sun's apparent radius).
 - **Wrap-around azimuth**: When `azimuthMin` > `azimuthMax`, the range crosses north. For example, `350` to `10` includes 350° through 0° to 10°.
 - **Cloud cover** (`"owmCloudCover"`) ranges from 0% (clear) to 100% (overcast). Values at or below `threshold` are sunny.
 - **One Call** (`"owmOneCall"`) reports sunny when UV is at or above `uvThreshold` **or** cloud cover is at or below `cloudThreshold`.

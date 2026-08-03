@@ -1,7 +1,9 @@
 const SunCalc = require('suncalc');
+const configSchema = require('./config.schema.json');
 
 const PLUGIN_NAME = 'homebridge-solar-sensor';
 const PLATFORM_NAME = 'SolarSensor';
+const SENSOR_SCHEMA = configSchema.schema.properties.sensors.items.properties;
 
 const POLL_INTERVAL = 60 * 1000; // sun poll (ms)
 const STATUS_LOG_INTERVAL = 10 * 60 * 1000; // status log (ms)
@@ -19,6 +21,11 @@ function toFiniteNumber(val) {
 function clamp(val, min, max, def) {
   const num = toFiniteNumber(val);
   return num === undefined ? def : Math.min(Math.max(num, min), max);
+}
+
+function normalizeSensorNumber(val, field) {
+  const { minimum, maximum, default: defaultValue } = SENSOR_SCHEMA[field];
+  return clamp(val, minimum, maximum, defaultValue);
 }
 
 function isInRange(value, min, max) {
@@ -225,10 +232,10 @@ class SolarSensorPlatform {
 
       const cfg = {
         name,
-        azimuthMin: clamp(sensorInput.azimuthMin, 0, 360, 0),
-        azimuthMax: clamp(sensorInput.azimuthMax, 0, 360, 360),
-        altitudeMin: clamp(sensorInput.altitudeMin, -90, 90, 0),
-        altitudeMax: clamp(sensorInput.altitudeMax, -90, 90, 90),
+        azimuthMin: normalizeSensorNumber(sensorInput.azimuthMin, 'azimuthMin'),
+        azimuthMax: normalizeSensorNumber(sensorInput.azimuthMax, 'azimuthMax'),
+        altitudeMin: normalizeSensorNumber(sensorInput.altitudeMin, 'altitudeMin'),
+        altitudeMax: normalizeSensorNumber(sensorInput.altitudeMax, 'altitudeMax'),
         ignoreWeather: sensorInput.ignoreWeather === true,
       };
       accessory.context.sensorConfig = cfg;
